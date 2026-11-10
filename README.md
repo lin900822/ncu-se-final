@@ -44,6 +44,22 @@ npm run dev
 3. 老師端畫面會即時列出已加入的組別與在線/離線狀態。
 4. 學生加入後預設為「等待搶答」且輸入框鎖定；老師按「開始搶答」，全班輸入框即時解鎖；按「結束搶答」再度鎖定（可重複多輪，每輪開始時輸入框清空）。
 
+## Google 試算表設定（用學習單產生題目）
+
+老師建立房間時可貼上 Google Sheet 連結，系統以專案的 Google 機器人（服務帳號）讀取，產生學生端的填空格。
+
+1. 確認 Google Cloud 專案已**啟用 Google Sheets API**（用服務帳號 JSON 金鑰即可，不需要 API key）。
+2. 把服務帳號 JSON 金鑰檔放在專案外或不入版控的位置，**不要提交到 git**。
+3. 複製 `backend/.env.example` 為 `backend/.env`，填入金鑰檔的絕對路徑：
+   ```
+   GOOGLE_SERVICE_ACCOUNT_FILE=/絕對路徑/服務帳號金鑰.json
+   ```
+4. 打開金鑰檔，複製 `client_email`，把要使用的 Google Sheet「共用」給該 email（目前檢視者即可；之後回填答案需改為編輯者）。
+5. 重新啟動後端。未設定時，仍可「直接建立房間（不使用試算表）」。
+
+學習單格式（單題與題組皆自動辨識）：表頭需有「題號」「題目」「作答」；題號欄為數字 1、2、3…（顯示為 Q1、Q2…）；
+題組在同一題號下以作答欄的「（1）」「（2）」標示小題，每個小題視為獨立的一題。題號須從 1 起連續且不重複，否則會拒絕建立並列出有問題的題號。
+
 ## 其他指令
 
 ```bash
@@ -68,4 +84,4 @@ plantuml -tpng diagrams/*.puml
 
 ## 文件
 
-規格、計畫、介面契約與手動驗證步驟見 `specs/001-room-join/`、`specs/002-answer-phase-sync/`；設計圖見 `diagrams/`。
+規格、計畫、介面契約與手動驗證步驟見 `specs/001-room-join/`、`specs/002-answer-phase-sync/`、`specs/003-sheet-question-form/`；設計圖見 `diagrams/`。

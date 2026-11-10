@@ -1,11 +1,11 @@
 """房間服務：建立、恢復、結束、活動時間。"""
-from ..models import Room, err, utcnow
+from ..models import Room, err, question_public, question_texts, utcnow
 from ..normalize import normalize_room_code
 from ..realtime import realtime
 from ..store import store
 
 
-def create_room() -> Room:
+def create_room(sheet=None) -> Room:
     now = utcnow()
     code = store.generate_room_code()
     room = Room(
@@ -15,6 +15,9 @@ def create_room() -> Room:
         teacher_token=store.generate_token(),
         recovery_code=store.generate_recovery_code(),
     )
+    if sheet is not None:
+        room.sheet = sheet.source
+        room.questions = list(sheet.questions)
     store.rooms[code] = room
     store.recovery_index[room.recovery_code] = code
     return room
@@ -71,6 +74,9 @@ def snapshot(room: Room) -> dict:
             "status": room.status,
             "phase": room.phase,
             "round": room.round,
+            "sheetTitle": room.sheet.sheet_title if room.sheet else None,
+            "questions": [question_public(q) for q in room.questions],
+            "texts": question_texts(room),  # 老師已驗證，可見完整題目文字
         },
         "groups": [g.to_dict() for g in groups],
         "count": len(groups),

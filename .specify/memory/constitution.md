@@ -1,5 +1,6 @@
 <!--
 Sync Impact Report
+- 1.0.1 (PATCH): 原則 I 補充題組小題以「題號-小題編號」識別、題目仍為扁平清單（文字澄清，不改原意）
 - Version change: (unversioned template) → 1.0.0
 - Modified principles: none renamed; the pre-existing "PRINCIPLE_6 圖表生成" was kept
   and renumbered as VI. PlantUML 設計優先 (content preserved verbatim in substance)
@@ -15,6 +16,8 @@ Sync Impact Report
 ### I. 組別為唯一作答與競爭單位
 系統 MUST 以「組別」作為作答、競爭與計分的唯一單位；個別學生身分不得參與搶答仲裁。
 題目 MUST 僅以題號管理（對應紙本學習單的空格順序），不得要求額外的題型分類或題目階層結構。
+學習單中同一題號含多個作答格（題組）時，每個作答格視為獨立的一題，以「題號-小題編號」（如 1-2）識別；
+題目仍為依序排列的扁平清單，不另存題型或父子關係。
 理由：紙本學習單以小組合作進行，單位一致可讓資料模型與課堂實況對應，並降低複雜度。
 
 ### II. 後端依送出時間仲裁搶答順位 (NON-NEGOTIABLE)
@@ -83,4 +86,4 @@ Sync Impact Report
   每個階段里程碑結束時 SHOULD 複查原則是否仍符合課堂實務。
 - 執行期指引：以 `.specify/` 下的規格、計畫與任務產物作為日常開發指引。
 
-**Version**: 1.0.0 | **Ratified**: 2026-11-10 | **Last Amended**: 2026-11-10
+**Version**: 1.0.1 | **Ratified**: 2026-11-10 | **Last Amended**: 2026-11-10

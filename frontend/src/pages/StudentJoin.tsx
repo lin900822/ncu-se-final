@@ -1,6 +1,14 @@
 import { useCallback, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { clearStudentJoin, loadStudentJoin, saveStudentJoin, type RoomPhase } from '../lib/api'
+import QuestionFields from '../components/QuestionFields'
+import {
+  clearStudentJoin,
+  loadStudentJoin,
+  saveStudentJoin,
+  type QuestionItem,
+  type RoomPhase,
+} from '../lib/api'
+import { clearDraft, loadDraft, saveDraft } from '../lib/drafts'
 import { useReconnectingSocket } from '../hooks/useReconnectingSocket'
 
 type View = 'form' | 'joining' | 'joined' | 'closed'
@@ -21,8 +29,11 @@ export default function StudentJoin() {
   const [notice, setNotice] = useState('')
   const [connectKey, setConnectKey] = useState(0)
   const [roomPhase, setRoomPhase] = useState<RoomPhase>('Waiting')
-  const [answer, setAnswer] = useState('')
+  const [questions, setQuestions] = useState<QuestionItem[]>([])
+  const [values, setValues] = useState<Record<string, string>>({})
+  const [texts, setTexts] = useState<Record<string, string>>({}) // 題目文字：僅搶答中才有
   const lastRound = useRef(0)
+  const roomCodeRef = useRef('')
   const auto = useRef(!!saved.current) // 是否為自動重新加入
   const retries = useRef(0)
   const activeRef = useRef(active)
@@ -33,23 +44,52 @@ export default function StudentJoin() {
     if (a) send({ type: 'join', code: a.code, name: a.name })
   }, [])
 
-  // 後端階段為唯一事實來源；round 增加（新一輪開始）才清空輸入框，同輪重連不清空
+  // 離開房間、房間結束或改加入別的房間時，清除本機草稿與狀態（FR-013）
+  const resetLocal = useCallback(() => {
+    if (roomCodeRef.current) clearDraft(roomCodeRef.current)
+    lastRound.current = 0
+    setValues({})
+  }, [])
+
+  // 後端階段為唯一事實來源；round 增加（新一輪開始）才清空填空格與草稿，同輪重連不清空
   const applyPhase = useCallback((phase: RoomPhase, round: number) => {
     setRoomPhase(phase)
     if (round > lastRound.current) {
       lastRound.current = round
-      setAnswer('')
+      setValues({})
+      if (roomCodeRef.current) clearDraft(roomCodeRef.current)
     }
+  }, [])
+
+  const onChangeAnswer = useCallback((id: string, text: string) => {
+    setValues((prev) => {
+      const next = { ...prev, [id]: text }
+      if (roomCodeRef.current) saveDraft(roomCodeRef.current, { round: lastRound.current, values: next })
+      return next
+    })
   }, [])
 
   const onMessage = useCallback((msg: Record<string, unknown>) => {
     if (msg.type === 'phase_changed') {
       applyPhase(msg.phase as RoomPhase, msg.round as number)
+      if (msg.phase !== 'Answering') setTexts({}) // 結束搶答後隱藏題目文字
+    } else if (msg.type === 'question_texts') {
+      setTexts((msg.texts as Record<string, string>) ?? {})
     } else if (msg.type === 'joined') {
-      applyPhase(msg.phase as RoomPhase, msg.round as number)
       const a = activeRef.current
       const group = msg.group as { name: string }
       const room = msg.room as { code: string }
+      const round = msg.round as number
+      // 順序很重要（避免重新整理時誤清草稿）：先讀草稿 → 以草稿輪次初始化 lastRound →
+      // 同一輪才還原 → 最後才 applyPhase（輪次較大才清空）
+      if (roomCodeRef.current && roomCodeRef.current !== room.code) resetLocal()
+      roomCodeRef.current = room.code
+      const draft = loadDraft(room.code)
+      if (draft) lastRound.current = draft.round
+      if (draft && draft.round === round) setValues(draft.values)
+      setQuestions((msg.questions as QuestionItem[]) ?? [])
+      setTexts((msg.texts as Record<string, string>) ?? {}) // 搶答中以外一律為空
+      applyPhase(msg.phase as RoomPhase, round)
       setJoinedName(group.name)
       setJoinedCode(room.code)
       if (a) saveStudentJoin({ code: room.code, name: group.name })
@@ -60,6 +100,8 @@ export default function StudentJoin() {
       setPhase('joined')
     } else if (msg.type === 'room_closed') {
       setRoomPhase('Ended')
+      setTexts({})
+      resetLocal()
       clearStudentJoin()
       setActive(null)
       setPhase('closed')
@@ -79,7 +121,7 @@ export default function StudentJoin() {
       setError(msg.message as string)
       setPhase(errCode === 'ROOM_CLOSED' ? 'closed' : 'form')
     }
-  }, [applyPhase])
+  }, [applyPhase, resetLocal])
 
   const { status } = useReconnectingSocket({
     path: active ? '/ws/student' : null,
@@ -98,8 +140,9 @@ export default function StudentJoin() {
     setError('')
     auto.current = false
     retries.current = 0
-    lastRound.current = 0
-    setAnswer('')
+    resetLocal()
+    setQuestions([])
+    setTexts({})
     setRoomPhase('Waiting')
     setPhase('joining')
     setActive({ code: code.trim(), name: name.trim() })
@@ -109,8 +152,9 @@ export default function StudentJoin() {
   function onLeave() {
     clearStudentJoin()
     auto.current = false
-    lastRound.current = 0
-    setAnswer('')
+    resetLocal()
+    setQuestions([])
+    setTexts({})
     setRoomPhase('Waiting')
     setActive(null)
     setPhase('form')
@@ -134,15 +178,15 @@ export default function StudentJoin() {
           {roomPhase === 'Answering' ? '搶答中' : roomPhase === 'Ended' ? '搶答已結束' : '等待搶答'}
           {status !== 'open' && '（重新連線中…）'}
         </p>
-        <textarea
-          aria-label="作答輸入框"
-          value={answer}
-          onChange={(e) => setAnswer(e.target.value)}
-          disabled={!unlocked}
-          placeholder={unlocked ? '請輸入答案' : '目前無法輸入'}
-          rows={4}
-          className="w-full rounded border border-slate-300 px-3 py-2 text-lg disabled:cursor-not-allowed disabled:bg-slate-100"
-        />
+        {questions.length > 0 && (
+          <QuestionFields
+            questions={questions}
+            values={values}
+            disabled={!unlocked}
+            texts={unlocked ? texts : undefined}
+            onChange={onChangeAnswer}
+          />
+        )}
         <button onClick={onLeave} className="text-sm text-slate-400 underline">
           離開房間
         </button>

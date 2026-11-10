@@ -1,13 +1,30 @@
 @startuml sequence
-title 房間建立、加入與階段同步 - 時序圖
+title 房間建立、加入、階段同步與題目表單 - 時序圖
 actor 老師
 actor 學生
 participant "老師端" as T
 participant "學生端" as S
 participant "後端" as B
+participant "Google Sheet" as G
+opt 老師貼 Google Sheet 連結
+  老師 -> T : 貼上連結
+  T -> B : previewSheet(sheetUrl)
+  B -> G : 唯讀讀取試算表
+  B -> B : 辨識「Q+數字」儲存格\n驗證題號自Q1連續且不重複\n(預覽不建立房間)
+  alt 連結無效/無法讀取/找不到填空格/題號重複或缺漏
+    B --> T : 錯誤訊息(可改連結重讀)
+  else 讀取成功
+    B --> T : 題號清單預覽 + 指紋
+    老師 -> T : 確認建立
+  end
+end
 老師 -> T : 建立房間
-T -> B : createRoom()
-B --> T : 房間代碼 + 老師憑證 + 恢復碼
+T -> B : createRoom(sheetUrl, 指紋)
+B -> G : 重新讀取並比對指紋
+alt 指紋不符
+  B --> T : 409 試算表已變動，請重新預覽(不建立房間)
+end
+B --> T : 房間代碼 + 老師憑證 + 恢復碼 + 題號清單
 T -> B : 訂閱組別清單
 opt 老師換裝置
   老師 -> T : 輸入恢復碼
@@ -22,7 +39,7 @@ alt 房間不存在/已結束(含閒置逾時)
 else 組名已存在且該組在線
   B --> S : 拒絕：該組目前在線
 else 成功(新組別或離線組別重新連線)
-  B --> S : 加入成功 + 目前階段(預設等待搶答→輸入鎖定)
+  B --> S : 加入成功 + 目前階段(預設等待搶答→輸入鎖定) + 題號清單\n+ 題目文字(僅搶答中，其餘階段為空)\n  S -> S : 依題號動態生成填空格(Q1~Qn)
   B -> T : 即時推送組別清單更新
 end
 opt 老師開始搶答
@@ -31,7 +48,9 @@ opt 老師開始搶答
   B -> B : 驗證老師憑證\n階段=Answering，記錄UTC時間
   B -> T : phase_changed(Answering)
   B -> S : phase_changed(Answering)\n(不含任何作答內容)
-  S -> S : 輸入框解鎖
+  B -> T : question_texts(題目文字)
+  B -> S : question_texts(題目文字，搶答開始後才送出)
+  S -> S : 輸入框解鎖並顯示題目文字
 end
 opt 老師結束搶答
   老師 -> T : 點擊「結束搶答」
@@ -39,7 +58,7 @@ opt 老師結束搶答
   B -> B : 階段=Ended，記錄UTC時間
   B -> T : phase_changed(Ended)
   B -> S : phase_changed(Ended)
-  S -> S : 輸入框鎖定(保留未送出文字)
+  S -> S : 輸入框鎖定(保留未送出文字)並隱藏題目文字
 end
 opt 學生嘗試送出(submit)
   S -> B : submit

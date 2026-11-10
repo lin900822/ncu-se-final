@@ -3,7 +3,7 @@ import json
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from ..models import AppError, err
+from ..models import AppError, err, question_public, question_texts
 from ..realtime import close_safe, realtime, send_json_safe
 from ..services import groups, phase, rooms
 
@@ -51,6 +51,11 @@ async def student_ws(ws: WebSocket):
                 "rejoined": rejoined,
                 "phase": room.phase,
                 "round": room.round,
+                "questions": [question_public(q) for q in room.questions],
+                # 題目文字只在搶答中才給學生（FR-014）；其餘階段（含重連）一律為空
+                "texts": question_texts(room)
+                if room.status == "Open" and room.phase == "Answering"
+                else {},
             },
         )
         await groups.announce_join(room, group, is_new)

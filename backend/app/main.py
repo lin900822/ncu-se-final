@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from .api import rooms as rooms_api
+from .api import sheets as sheets_api
 from .api import ws as ws_api
 from .models import AppError, utcnow
 from .realtime import realtime
@@ -51,11 +52,12 @@ app = FastAPI(title="課堂搶答 - 房間與組別", lifespan=lifespan)
 
 @app.exception_handler(AppError)
 async def app_error_handler(_: Request, e: AppError):
-    return JSONResponse(
-        status_code=e.http_status,
-        content={"error": {"code": e.code, "message": e.message}},
-    )
+    error: dict = {"code": e.code, "message": e.message}
+    if e.details:
+        error["details"] = e.details
+    return JSONResponse(status_code=e.http_status, content={"error": error})
 
 
 app.include_router(rooms_api.router)
+app.include_router(sheets_api.router)
 app.include_router(ws_api.router)

@@ -1,5 +1,5 @@
 @startuml class
-title 房間建立、加入與階段同步 - 類別圖
+title 房間建立、加入、階段同步與題目表單 - 類別圖
 class Room {
   code : string
   status : Open | Closed
@@ -12,6 +12,27 @@ class Room {
   phase : Waiting | Answering | Ended
   round : int (每次開始搶答 +1)
 }
+class Question {
+  id : string (3 或 1-2)
+  number : int
+  sub : int | null (題組小題編號)
+  label : string (Q3 / Q1（2）)
+  cell : string (作答格位置，僅伺服器保存)
+  text : string (題目欄文字；搶答開始後才送學生)
+}
+class SheetSource {
+  url : string
+  spreadsheetId : string
+  sheetId : int
+  sheetTitle : string
+  readAt : datetime (UTC)
+  fingerprint : string
+}
+note right of Question
+  扁平清單，不存題型；題號須自1起連續且不重複，
+  題組小題須自（1）起連續；cell 不送給前端。
+  房間建立後題目固定，不隨試算表變動。
+end note
 class PhaseChange <<append-only>> {
   phase : Answering | Ended
   round : int
@@ -35,5 +56,7 @@ note right of Room
 end note
 Teacher "1" -- "0..*" Room : 建立
 Room "1" *-- "0..*" PhaseChange : 階段變更紀錄
+Room "1" *-- "0..*" Question : 題目(依題號排序)
+Room "1" o-- "0..1" SheetSource : 學習單來源
 Room "1" *-- "0..*" Group : 包含\n(組名於房間內唯一)
 @enduml

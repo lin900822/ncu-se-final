@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Header
 from pydantic import BaseModel
 
-from ..models import iso
-from ..services import phase, rooms
+from ..models import err, iso, question_public
+from ..services import phase, rooms, sheets
 
 router = APIRouter(prefix="/api/rooms")
 
@@ -17,14 +17,29 @@ def _bearer(authorization: str | None) -> str | None:
     return None
 
 
+class CreateBody(BaseModel):
+    sheetUrl: str | None = None
+    fingerprint: str | None = None
+
+
 @router.post("", status_code=201)
-async def create_room():
-    room = rooms.create_room()
+async def create_room(body: CreateBody | None = None):
+    sheet = None
+    if body and (body.sheetUrl or body.fingerprint):
+        if not (body.sheetUrl and body.fingerprint):
+            raise err("BAD_REQUEST")
+        # 先完整讀取並驗證，全部通過後才建立房間（任何錯誤都不留下房間）
+        sheet = await sheets.read_questions(body.sheetUrl)
+        if sheet.source.fingerprint != body.fingerprint:
+            raise err("SHEET_CHANGED")
+    room = rooms.create_room(sheet)
     return {
         "code": room.code,
         "teacherToken": room.teacher_token,
         "recoveryCode": room.recovery_code,
         "createdAt": iso(room.created_at),
+        "sheetTitle": room.sheet.sheet_title if room.sheet else None,
+        "questions": [question_public(q) for q in room.questions],
     }
 
 

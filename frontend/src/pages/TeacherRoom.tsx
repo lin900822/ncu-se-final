@@ -6,9 +6,11 @@ import {
   endAnswering,
   loadTeacherSession,
   startAnswering,
+  type QuestionItem,
   type RoomPhase,
   type TeacherSession,
 } from '../lib/api'
+import { QuestionList } from '../components/QuestionFields'
 import { useReconnectingSocket } from '../hooks/useReconnectingSocket'
 
 interface GroupItem {
@@ -23,6 +25,9 @@ export default function TeacherRoom() {
   const [groups, setGroups] = useState<GroupItem[]>([])
   const [closed, setClosed] = useState(false)
   const [roomPhase, setRoomPhase] = useState<RoomPhase>('Waiting')
+  const [questions, setQuestions] = useState<QuestionItem[]>([])
+  const [sheetTitle, setSheetTitle] = useState<string | null>(null)
+  const [texts, setTexts] = useState<Record<string, string>>({})
   const [revoked, setRevoked] = useState(false)
   const [error, setError] = useState('')
 
@@ -35,7 +40,21 @@ export default function TeacherRoom() {
       case 'snapshot':
         // 後端為事實來源：以快照整份覆蓋
         setGroups(msg.groups as GroupItem[])
-        setRoomPhase((msg.room as { phase: RoomPhase }).phase)
+        {
+          const room = msg.room as {
+            phase: RoomPhase
+            questions?: QuestionItem[]
+            sheetTitle?: string | null
+            texts?: Record<string, string>
+          }
+          setRoomPhase(room.phase)
+          setQuestions(room.questions ?? [])
+          setSheetTitle(room.sheetTitle ?? null)
+          setTexts(room.texts ?? {})
+        }
+        break
+      case 'question_texts':
+        setTexts((msg.texts as Record<string, string>) ?? {})
         break
       case 'phase_changed':
         setRoomPhase(msg.phase as RoomPhase)
@@ -165,6 +184,18 @@ export default function TeacherRoom() {
           </button>
         </section>
       )}
+
+      <section className="space-y-2 rounded-xl bg-white p-6 shadow-sm">
+        <h2 className="text-xl font-bold">題目{questions.length > 0 && `（共 ${questions.length} 題）`}</h2>
+        {questions.length === 0 ? (
+          <p className="text-slate-500">本房間未設定題目</p>
+        ) : (
+          <>
+            {sheetTitle && <p className="text-sm text-slate-500">來源分頁：{sheetTitle}</p>}
+            <QuestionList questions={questions} texts={texts} />
+          </>
+        )}
+      </section>
 
       <section className="rounded-xl bg-white p-6 shadow-sm">
         <div className="mb-3 flex items-center justify-between">

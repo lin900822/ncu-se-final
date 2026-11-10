@@ -6,10 +6,26 @@ export interface TeacherSession {
 
 export class ApiError extends Error {
   code: string
-  constructor(code: string, message: string) {
+  details?: Record<string, unknown>
+  constructor(code: string, message: string, details?: Record<string, unknown>) {
     super(message)
     this.code = code
+    this.details = details
   }
+}
+
+/** 題目（不含試算表位置；位置只存在伺服器） */
+export interface QuestionItem {
+  id: string
+  number: number
+  sub: number | null
+  label: string
+}
+
+export interface SheetPreview {
+  sheetTitle: string
+  questions: QuestionItem[]
+  fingerprint: string
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -22,16 +38,49 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const data = await res.json().catch(() => null)
   if (!res.ok) {
     const e = data?.error
-    throw new ApiError(e?.code ?? 'UNKNOWN', e?.message ?? '發生未知錯誤')
+    throw new ApiError(e?.code ?? 'UNKNOWN', e?.message ?? '發生未知錯誤', e?.details)
   }
   return data as T
 }
 
-export async function createRoom(): Promise<TeacherSession> {
-  const r = await request<{ code: string; teacherToken: string; recoveryCode: string }>('/api/rooms', {
+export async function previewSheet(url: string): Promise<SheetPreview> {
+  return request<SheetPreview>('/api/sheets/preview', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
   })
-  return r
+}
+
+/** 不帶參數＝不使用試算表；帶參數時後端會重新讀取並比對指紋 */
+export async function createRoom(opts?: {
+  sheetUrl: string
+  fingerprint: string
+}): Promise<TeacherSession> {
+  return request<TeacherSession>('/api/rooms', {
+    method: 'POST',
+    ...(opts
+      ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(opts) }
+      : {}),
+  })
+}
+
+/** 把 API 錯誤轉成給老師看的中文訊息（題號問題會列出重複與缺漏） */
+export function describeError(e: unknown): string {
+  if (e instanceof ApiError && e.code === 'SHEET_QUESTIONS_INVALID' && e.details) {
+    const d = e.details as {
+      duplicates?: number[]
+      missing?: number[]
+      invalidSubs?: number[]
+      empty?: number[]
+    }
+    const parts: string[] = []
+    if (d.duplicates?.length) parts.push(`重複的題號：${d.duplicates.join('、')}`)
+    if (d.missing?.length) parts.push(`缺漏的題號：${d.missing.join('、')}`)
+    if (d.invalidSubs?.length) parts.push(`小題編號不連續的題號：${d.invalidSubs.join('、')}`)
+    if (d.empty?.length) parts.push(`沒有作答格的題號：${d.empty.join('、')}`)
+    return `${e.message}（${parts.join('；')}）`
+  }
+  return (e as Error).message
 }
 
 export async function recoverRoom(recoveryCode: string): Promise<TeacherSession> {

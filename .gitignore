@@ -4,3 +4,9 @@ __pycache__/
 frontend/node_modules/
 frontend/dist/
 .DS_Store
+
+# 機密：環境變數與 Google 服務帳號金鑰（絕對不可提交）
+.env
+backend/.env
+*.service-account*.json
+credentials/

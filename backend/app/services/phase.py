@@ -3,7 +3,7 @@
 狀態更新與紀錄追加都在無 await 的同步區段內完成（單一 worker 下即為原子），
 之後才廣播。廣播內容僅含階段資訊（FR-011）。
 """
-from ..models import PhaseChange, Room, err, iso, utcnow
+from ..models import PhaseChange, Room, err, iso, question_texts, utcnow
 from ..realtime import realtime
 from . import rooms
 
@@ -19,6 +19,15 @@ async def _broadcast(room: Room, change: PhaseChange) -> None:
     await realtime.broadcast_to_students(room.code, message)
 
 
+async def _reveal_texts(room: Room, change: PhaseChange) -> None:
+    """開始搶答後才把題目文字送出（FR-014）；結束搶答不送。"""
+    if not room.questions:
+        return
+    message = {"type": "question_texts", "round": change.round, "texts": question_texts(room)}
+    await realtime.broadcast_to_teachers(room.code, message)
+    await realtime.broadcast_to_students(room.code, message)
+
+
 async def start_answering(room: Room) -> tuple[str, int, bool]:
     if room.status == "Closed":
         raise err("ROOM_CLOSED")
@@ -30,6 +39,7 @@ async def start_answering(room: Room) -> tuple[str, int, bool]:
     room.phase_log.append(change)
     rooms.touch(room)
     await _broadcast(room, change)
+    await _reveal_texts(room, change)
     return room.phase, room.round, True
 
 
