@@ -40,6 +40,24 @@
 [SECTION_3_CONTENT]
 <!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
 
+### [PRINCIPLE_6_圖表生成 (Diagram Generation)]
+名稱：PlantUML 設計優先 (Design-First with PlantUML)
+規則：
+規格制定階段 (Specification Phase)：
+在 speckit.specify 階段，必須使用 PlantUML 語法生成組件圖 (Component
+diagram)、類別圖 (Class diagram) 和時序圖 (Sequence diagram)。這些圖表檔
+案 (.puml) 必須儲存在 ./diagrams/ 目錄中。
+產物生成 (Artifact Generation)：
+檔案建立後，必須使用 PlantUML CLI (java -jar plantuml.jar
+"./diagrams/*.puml") 將所有 .puml 檔案轉換為 PNG 圖片，且輸出的圖片必須儲
+存在相同的目錄中。
+規劃階段 (Planning Phase)：
+speckit.plan 階段必須將這些圖表作為主要藍圖，用以生成應用程式的架構與組
+件。
+實作階段 (Implementation Phase)：
+在 speckit.implement 階段完成程式碼生成後，必須執行驗證步驟，以確保最終
+的程式碼與圖表完全一致。
+
 ## Governance
 <!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
