@@ -62,7 +62,9 @@ class Submission:
     question_id: str
     round: int
     answer: str  # 非空白且 ≤ 500 字元，保存原文
-    submitted_at: datetime
+    submitted_at: datetime  # 後端 UTC，僅供顯示，不參與排序判定
+    seq: int  # 房間內單調遞增處理序（仲裁依據），建立後不可改寫
+    rank: int  # 同一 (round, question_id) 的名次（1 起算），建立後不可改寫
 
 
 @dataclass
@@ -94,6 +96,9 @@ class Room:
     # 去重索引：(round, normalized_name, question_id) -> Submission（由 submissions 推得）
     submission_index: dict[tuple[int, str, str], Submission] = field(default_factory=dict)
     questions: list[Question] = field(default_factory=list)
+    # 順位仲裁（Step 5）：處理序計數與每題每輪已排名數（皆由 submissions 推得）
+    next_seq: int = 1
+    rank_counts: dict[tuple[int, str], int] = field(default_factory=dict)
 
 
 class AppError(Exception):

@@ -26,6 +26,13 @@ def submit(room: Room, group: Group, question_id: str, answer: str) -> tuple[Sub
     existing = room.submission_index.get(key)
     if existing is not None:
         return existing, False
+    # 順位仲裁（原則 II）：與去重、追加位於同一無 await 區段；seq 為唯一仲裁鍵，
+    # 名次＝同題同輪已有有效送出數＋1；寫入後不再修改。驗證失敗／重複路徑不會走到這裡。
+    seq = room.next_seq
+    room.next_seq += 1
+    rank_key = (room.round, question_id)
+    rank = room.rank_counts.get(rank_key, 0) + 1
+    room.rank_counts[rank_key] = rank
     sub = Submission(
         group_name=group.name,
         normalized_name=group.normalized_name,
@@ -33,6 +40,8 @@ def submit(room: Room, group: Group, question_id: str, answer: str) -> tuple[Sub
         round=room.round,
         answer=answer,
         submitted_at=utcnow(),  # 時間一律由後端產生
+        seq=seq,
+        rank=rank,
     )
     room.submissions.append(sub)
     room.submission_index[key] = sub
@@ -76,6 +85,7 @@ def to_teacher_event(sub: Submission) -> dict:
         "answer": sub.answer,
         "round": sub.round,
         "submittedAt": iso(sub.submitted_at),
+        "rank": sub.rank,  # 僅老師可見（原則 III）
     }
 
 

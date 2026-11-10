@@ -11,6 +11,7 @@ import {
   type TeacherSession,
 } from '../lib/api'
 import { QuestionList } from '../components/QuestionFields'
+import RankingBoard, { type Board } from '../components/RankingBoard'
 import { useReconnectingSocket } from '../hooks/useReconnectingSocket'
 
 interface SubmissionItem {
@@ -19,6 +20,7 @@ interface SubmissionItem {
   answer: string
   round: number
   submittedAt: string
+  rank: number
 }
 
 interface GroupItem {
@@ -38,6 +40,7 @@ export default function TeacherRoom() {
   const [texts, setTexts] = useState<Record<string, string>>({})
   const [round, setRound] = useState(0)
   const [submissions, setSubmissions] = useState<SubmissionItem[]>([])
+  const [board, setBoard] = useState<Board | null>(null)
   const [revoked, setRevoked] = useState(false)
   const [error, setError] = useState('')
 
@@ -58,6 +61,7 @@ export default function TeacherRoom() {
             texts?: Record<string, string>
             round?: number
             submissions?: SubmissionItem[]
+            board?: Board
           }
           setRoomPhase(room.phase)
           setQuestions(room.questions ?? [])
@@ -65,6 +69,7 @@ export default function TeacherRoom() {
           setTexts(room.texts ?? {})
           setRound(room.round ?? 0)
           setSubmissions(room.submissions ?? [])
+          setBoard(room.board ?? null)
         }
         break
       case 'question_texts':
@@ -78,10 +83,15 @@ export default function TeacherRoom() {
           answer: msg.answer as string,
           round: msg.round as number,
           submittedAt: msg.submittedAt as string,
+          rank: msg.rank as number,
         }
         setSubmissions((prev) => [...prev, item])
         break
       }
+      case 'board':
+        // 完整看板直接覆蓋（後端為事實來源）
+        setBoard(msg as unknown as Board)
+        break
       case 'phase_changed':
         setRound(msg.round as number)
         setRoomPhase(msg.phase as RoomPhase)
@@ -225,6 +235,11 @@ export default function TeacherRoom() {
             <QuestionList questions={questions} texts={texts} />
           </>
         )}
+      </section>
+
+      <section className="space-y-2 rounded-xl bg-white p-6 shadow-sm">
+        <h2 className="text-xl font-bold">即時進度板</h2>
+        <RankingBoard board={board} questions={questions} />
       </section>
 
       <section className="space-y-2 rounded-xl bg-white p-6 shadow-sm">

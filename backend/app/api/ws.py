@@ -5,7 +5,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..models import AppError, err, question_public, question_texts
 from ..realtime import close_safe, realtime, send_json_safe
-from ..services import groups, rooms, submissions
+from ..services import groups, ranking, rooms, submissions
 
 router = APIRouter()
 
@@ -90,6 +90,7 @@ async def student_ws(ws: WebSocket):
                     room.code, group.normalized_name, submissions.to_group_event(sub)
                 )
                 await realtime.broadcast_to_teachers(room.code, submissions.to_teacher_event(sub))
+                await realtime.broadcast_to_teachers(room.code, ranking.build_board(room))
                 await realtime.broadcast_to_other_groups(
                     room.code, group.normalized_name, submissions.to_other_groups_event(sub)
                 )

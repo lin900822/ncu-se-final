@@ -1,5 +1,5 @@
 @startuml component
-title 房間、階段、題目表單與答案提交 - 組件圖
+title 房間、階段、題目表單、答案提交與搶答順位 - 組件圖
 actor 老師
 actor 學生
 component "老師端畫面" as TUI
@@ -9,6 +9,7 @@ package "後端" {
   component "組別服務\n(組名正規化/唯一性\n在線時拒絕重複加入)" as GroupSvc
   component "學習單服務\n(驗證連結/讀取試算表\n依表頭辨識單題/題組\n驗證題號連續且不重複\n產生指紋)" as SheetSvc
   component "提交服務\n(階段閘門/驗證答案\n同組同題同輪只收第一筆\n序列化防重複，UTC時間)" as SubmitSvc
+  component "順位服務\n(依後端收到先後判定名次\n同題同輪唯一不並列\n追加順位紀錄，確定後不改寫)" as RankSvc
   component "階段服務\n(開始/結束搶答\n老師憑證驗證\n階段為唯一事實來源)" as PhaseSvc
   component "房間逾時排程\n(閒置2小時自動結束)" as Expiry
   component "即時廣播通道" as Realtime
@@ -28,6 +29,9 @@ SUI --> RoomSvc : 取得題號清單(加入/重連)
 SUI --> SubmitSvc : 送出某題答案
 SubmitSvc --> PhaseSvc : 檢查搶答中
 SubmitSvc --> Store : 追加送出紀錄
+SubmitSvc --> RankSvc : 有效送出→判定名次
+RankSvc --> Store : 於送出紀錄寫入seq/rank
+RankSvc --> Realtime : 僅老師:進度板(領先組別/名次/領先題數)
 SubmitSvc --> Realtime : 同組視窗:已送出+內容\n老師:組別+內容+時間\n其他組:匿名「已有組別送出」
 TUI --> PhaseSvc : 開始/結束搶答
 PhaseSvc --> RoomSvc : 驗證老師憑證/房間開放

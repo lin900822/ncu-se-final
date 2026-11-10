@@ -5,7 +5,7 @@
 """
 from ..models import PhaseChange, Room, err, iso, question_texts, utcnow
 from ..realtime import realtime
-from . import rooms
+from . import ranking, rooms
 
 
 async def _broadcast(room: Room, change: PhaseChange) -> None:
@@ -40,6 +40,8 @@ async def start_answering(room: Room) -> tuple[str, int, bool]:
     rooms.touch(room)
     await _broadcast(room, change)
     await _reveal_texts(room, change)
+    # 新一輪：老師端看板重設為空白（僅老師，原則 III）
+    await realtime.broadcast_to_teachers(room.code, ranking.build_board(room))
     return room.phase, room.round, True
 
 

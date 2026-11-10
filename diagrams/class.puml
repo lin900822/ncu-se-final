@@ -1,5 +1,5 @@
 @startuml class
-title 房間、階段、題目表單與答案提交 - 類別圖
+title 房間、階段、題目表單、答案提交與搶答順位 - 類別圖
 class Room {
   code : string
   status : Open | Closed
@@ -38,12 +38,25 @@ class Submission <<append-only>> {
   questionId : string
   round : int
   answer : string (≤500)
-  submittedAt : datetime (UTC, 後端產生)
+  submittedAt : datetime (UTC, 後端產生，僅供顯示)
+  seq : int (房間內處理序，仲裁依據)
+  rank : int (同題同輪名次，確定後不改寫)
 }
 note right of Submission
   同一組別+題目+輪次最多一筆有效；
-  內容僅老師與該組可見。
+  內容僅老師與該組可見；
+  rank/seq 僅老師可見，名次=最快送出，非最終獲勝。
 end note
+class QuestionProgress <<derived>> {
+  questionId : string
+  leaderGroup : string | null
+  submittedCount : int
+  ranking : list
+}
+class GroupLeadTally <<derived>> {
+  groupName : string
+  leadCount : int (領先第1名題數)
+}
 class PhaseChange <<append-only>> {
   phase : Answering | Ended
   round : int
@@ -70,6 +83,8 @@ Teacher "1" -- "0..*" Room : 建立
 Room "1" *-- "0..*" PhaseChange : 階段變更紀錄
 Room "1" *-- "0..*" Submission : 送出紀錄
 Group "1" -- "0..*" Submission : 提交
+Submission ..> QuestionProgress : 推得
+QuestionProgress ..> GroupLeadTally : 統計
 Room "1" *-- "0..*" Question : 題目(依題號排序)
 Room "1" o-- "0..1" SheetSource : 學習單來源
 Room "1" *-- "0..*" Group : 包含\n(組名於房間內唯一)

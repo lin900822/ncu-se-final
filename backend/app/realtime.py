@@ -5,6 +5,7 @@
 - `broadcast_to_students`、`broadcast_to_other_groups` 嚴禁傳入答案、組名、草稿、組數或時間；
   只能傳房間層級訊息（階段、題目文字）或匿名提示 {type, questionId, round}。
 - 組別清單與狀態只會送給老師連線。
+- 名次、看板、領先組別與領先題數（Step 5）僅能經 `broadcast_to_teachers` 傳送。
 """
 from fastapi import WebSocket
 
