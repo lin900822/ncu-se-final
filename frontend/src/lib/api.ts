@@ -22,6 +22,12 @@ export interface QuestionItem {
   label: string
 }
 
+/** 題組：老師綁定、須一起送出的相鄰題目（不含作答內容） */
+export interface BundleItem {
+  id: string
+  questionIds: string[]
+}
+
 export interface SheetPreview {
   sheetTitle: string
   questions: QuestionItem[]
@@ -51,11 +57,12 @@ export async function previewSheet(url: string): Promise<SheetPreview> {
   })
 }
 
-/** 不帶參數＝不使用試算表；帶參數時後端會重新讀取並比對指紋 */
+/** 不帶參數＝不使用試算表；帶參數時後端會重新讀取並比對指紋；bundles 為題組（每組為相鄰題目的 id） */
 export async function createRoom(opts?: {
   sheetUrl: string
   fingerprint: string
-}): Promise<TeacherSession> {
+  bundles?: string[][]
+}): Promise<TeacherSession & { bundles?: BundleItem[] }> {
   return request<TeacherSession>('/api/rooms', {
     method: 'POST',
     ...(opts
@@ -79,6 +86,17 @@ export function describeError(e: unknown): string {
     if (d.invalidSubs?.length) parts.push(`小題編號不連續的題號：${d.invalidSubs.join('、')}`)
     if (d.empty?.length) parts.push(`沒有作答格的題號：${d.empty.join('、')}`)
     return `${e.message}（${parts.join('；')}）`
+  }
+  if (e instanceof ApiError && e.code === 'BUNDLES_INVALID' && e.details) {
+    const reasons: Record<string, string> = {
+      TOO_FEW: '題組至少需要 2 題',
+      NOT_ADJACENT: '題組只能包含相鄰的題目',
+      OVERLAP: '一題只能屬於一個題組',
+      UNKNOWN_QUESTION: '題組包含不存在的題目',
+      NO_QUESTIONS: '沒有題目時不能設定題組',
+    }
+    const reason = reasons[e.details.reason as string]
+    return reason ? `${e.message}：${reason}` : e.message
   }
   return (e as Error).message
 }

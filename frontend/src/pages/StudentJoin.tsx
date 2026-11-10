@@ -5,6 +5,7 @@ import {
   clearStudentJoin,
   loadStudentJoin,
   saveStudentJoin,
+  type BundleItem,
   type QuestionItem,
   type RoomPhase,
 } from '../lib/api'
@@ -34,6 +35,10 @@ export default function StudentJoin() {
   const [submitted, setSubmitted] = useState<Record<string, string>>({})
   const [othersSubmitted, setOthersSubmitted] = useState<string[]>([])
   const [errors, setErrors] = useState<Record<string, string>>({})
+  // 題組（Step 7）：設定由伺服器下發；錯誤依題組顯示
+  const [bundles, setBundles] = useState<BundleItem[]>([])
+  const bundlesRef = useRef<BundleItem[]>([])
+  const [bundleErrors, setBundleErrors] = useState<Record<string, string>>({})
   const lastRound = useRef(0)
   const roomCodeRef = useRef('')
   const activeRef = useRef(active)
@@ -52,6 +57,7 @@ export default function StudentJoin() {
     setSubmitted({})
     setOthersSubmitted([])
     setErrors({})
+    setBundleErrors({})
     setResult(null)
   }, [])
 
@@ -64,6 +70,7 @@ export default function StudentJoin() {
       setSubmitted({})
       setOthersSubmitted([])
       setErrors({})
+      setBundleErrors({})
       if (roomCodeRef.current) clearDraft(roomCodeRef.current)
     }
   }, [])
@@ -94,6 +101,22 @@ export default function StudentJoin() {
         const { [qid]: _removed, ...rest } = prev
         return rest
       })
+    } else if (msg.type === 'bundle_submitted') {
+      // 同組任一視窗送出題組（含自己）：整張卡片一次變「已送出」，內容以伺服器為準
+      const bid = msg.bundleId as string
+      const answers = (msg.answers as Record<string, string>) ?? {}
+      setSubmitted((prev) => ({ ...prev, ...answers }))
+      setValues((prev) => ({ ...prev, ...answers }))
+      setBundleErrors((prev) => {
+        const { [bid]: _removed, ...rest } = prev
+        return rest
+      })
+    } else if (msg.type === 'bundle_hint') {
+      // 匿名提示：只知道「這個題組有組別送出」，以成員題目記錄（與重連時的 submittedByOthers 一致）
+      if ((msg.round as number) >= lastRound.current) {
+        const b = bundlesRef.current.find((x) => x.id === msg.bundleId)
+        if (b) setOthersSubmitted((prev) => [...new Set([...prev, ...b.questionIds])])
+      }
     } else if (msg.type === 'question_submitted') {
       // 匿名提示：只知道「這題有組別送出」，不含組名、內容、數量
       if ((msg.round as number) >= lastRound.current) {
@@ -115,6 +138,8 @@ export default function StudentJoin() {
       if (draft) lastRound.current = draft.round
       if (draft && draft.round === round) setValues(draft.values)
       setQuestions((msg.questions as QuestionItem[]) ?? [])
+      bundlesRef.current = (msg.bundles as BundleItem[]) ?? []
+      setBundles(bundlesRef.current)
       setTexts((msg.texts as Record<string, string>) ?? {}) // 搶答中以外一律為空
       applyPhase(msg.phase as RoomPhase, round)
       // 伺服器還原本組本輪已送出的內容與他組匿名提示（須在 applyPhase 之後，避免被輪次清空覆蓋）
@@ -139,6 +164,12 @@ export default function StudentJoin() {
       setPhase('closed')
     } else if (msg.type === 'error') {
       const errCode = msg.code as string
+      if (msg.bundleId !== undefined) {
+        // 題組送出被拒絕（未填完、過長、非搶答中…）：顯示在該題組卡片，連線維持
+        const bid = msg.bundleId as string
+        setBundleErrors((prev) => ({ ...prev, [bid]: msg.message as string }))
+        return
+      }
       if (msg.questionId !== undefined) {
         // 送出被拒絕（空白、過長、非搶答中…）：只顯示在該題，連線維持
         const qid = msg.questionId as string
@@ -168,6 +199,18 @@ export default function StudentJoin() {
       return rest
     })
     send({ type: 'submit', questionId: id, answer: values[id] ?? '' })
+  }
+
+  // 送出題組：只送該題組成員的答案；不做樂觀更新，等伺服器回 bundle_submitted
+  function onSubmitBundle(bundleId: string) {
+    const b = bundles.find((x) => x.id === bundleId)
+    if (!b) return
+    setBundleErrors((prev) => {
+      const { [bundleId]: _removed, ...rest } = prev
+      return rest
+    })
+    const answers = Object.fromEntries(b.questionIds.map((id) => [id, values[id] ?? '']))
+    send({ type: 'submit_bundle', bundleId, answers })
   }
 
   function onSubmit(e: React.FormEvent) {
@@ -215,7 +258,7 @@ export default function StudentJoin() {
           {status !== 'open' && '（重新連線中…）'}
         </p>
         {roomPhase === 'Ended' && result && (
-          <ResultBoard result={result} questions={questions} myGroup={joinedName} />
+          <ResultBoard result={result} questions={questions} myGroup={joinedName} bundles={bundles} />
         )}
         {!(roomPhase === 'Ended' && result) && questions.length > 0 && (
           <QuestionFields
@@ -226,7 +269,10 @@ export default function StudentJoin() {
             submitted={submitted}
             othersSubmitted={othersSubmitted}
             errors={errors}
+            bundles={bundles}
+            bundleErrors={bundleErrors}
             onSubmit={onSubmitAnswer}
+            onSubmitBundle={onSubmitBundle}
             onChange={onChangeAnswer}
           />
         )}

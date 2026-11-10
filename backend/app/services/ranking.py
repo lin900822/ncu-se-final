@@ -22,6 +22,7 @@ def build_board(room: Room) -> dict:
         questions.append(
             {
                 "questionId": q.id,
+                "bundleId": room.bundle_of.get(q.id),  # 題組（Step 7）；未綁定為 None
                 "leader": leader,
                 "submittedCount": len(subs),
                 "ranking": [

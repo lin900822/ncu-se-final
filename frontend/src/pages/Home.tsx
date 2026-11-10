@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { QuestionList } from '../components/QuestionFields'
+import BundleEditor from '../components/BundleEditor'
 import {
+  ApiError,
   createRoom,
   describeError,
   loadTeacherSession,
@@ -27,6 +29,8 @@ export default function Home() {
   const [sheetUrl, setSheetUrl] = useState('')
   const [preview, setPreview] = useState<SheetPreview | null>(null)
   const [previewedUrl, setPreviewedUrl] = useState('')
+  // 題組（Step 7）：只在預覽中暫存，確認建立時才送出；重新讀取或改連結即清除
+  const [bundles, setBundles] = useState<string[][]>([])
 
   async function onCreate() {
     setBusy(true)
@@ -46,6 +50,7 @@ export default function Home() {
     setBusy(true)
     setError('')
     setPreview(null)
+    setBundles([])
     try {
       const url = sheetUrl.trim()
       setPreview(await previewSheet(url))
@@ -63,10 +68,16 @@ export default function Home() {
     setBusy(true)
     setError('')
     try {
-      saveTeacherSession(await createRoom({ sheetUrl: previewedUrl, fingerprint: preview.fingerprint }))
+      saveTeacherSession(
+        await createRoom({ sheetUrl: previewedUrl, fingerprint: preview.fingerprint, bundles }),
+      )
       nav('/teacher')
     } catch (err) {
-      setPreview(null) // 例如試算表已變動：要求重新讀取
+      // 題組設定有誤時保留預覽讓老師修改；其他錯誤（例如試算表已變動）要求重新讀取
+      if (!(err instanceof ApiError && err.code === 'BUNDLES_INVALID')) {
+        setPreview(null)
+        setBundles([])
+      }
       setError(describeError(err))
     } finally {
       setBusy(false)
@@ -120,6 +131,7 @@ export default function Home() {
             onChange={(e) => {
               setSheetUrl(e.target.value)
               setPreview(null) // 改連結即清除預覽
+              setBundles([])
             }}
             placeholder="貼上 Google Sheet 連結"
             className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2"
@@ -137,6 +149,12 @@ export default function Home() {
               分頁「{preview.sheetTitle}」，共 {preview.questions.length} 題，請確認題號是否正確：
             </p>
             <QuestionList questions={preview.questions} />
+            <BundleEditor
+              questions={preview.questions}
+              bundles={bundles}
+              onChange={setBundles}
+              disabled={busy}
+            />
             <button
               type="button"
               onClick={onConfirm}

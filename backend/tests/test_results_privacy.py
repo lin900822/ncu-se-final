@@ -64,7 +64,7 @@ def test_no_result_before_end_and_only_winners_after(client, use_sheet):
 
 
 def test_static_scan_result_channels():
-    all_src = {p: p.read_text() for p in APP.rglob("*.py")}
+    all_src = {p: p.read_text(encoding="utf-8") for p in APP.rglob("*.py")}
     users = [p.name for p, s in all_src.items() if "broadcast_result(" in s and p.name != "realtime.py"]
     assert users == ["phase.py"]
     for p, s in all_src.items():

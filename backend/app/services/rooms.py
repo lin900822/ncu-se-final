@@ -1,12 +1,13 @@
 """房間服務：建立、恢復、結束、活動時間。"""
-from ..models import Room, err, iso, question_public, question_texts, utcnow
+from ..models import Room, bundle_public, err, iso, question_public, question_texts, utcnow
 from ..normalize import normalize_room_code
 from ..realtime import realtime
 from ..store import store
+from . import bundles as bundles_service
 from . import ranking, results
 
 
-def create_room(sheet=None) -> Room:
+def create_room(sheet=None, bundles=None) -> Room:
     now = utcnow()
     code = store.generate_room_code()
     room = Room(
@@ -19,6 +20,9 @@ def create_room(sheet=None) -> Room:
     if sheet is not None:
         room.sheet = sheet.source
         room.questions = list(sheet.questions)
+        # 題組隨房間建立確定，之後不可修改（Step 7）
+        room.bundles = list(bundles or [])
+        room.bundle_of = bundles_service.index_bundles(room.bundles)
     store.rooms[code] = room
     store.recovery_index[room.recovery_code] = code
     return room
@@ -77,6 +81,7 @@ def snapshot(room: Room) -> dict:
             "round": room.round,
             "sheetTitle": room.sheet.sheet_title if room.sheet else None,
             "questions": [question_public(q) for q in room.questions],
+            "bundles": [bundle_public(b) for b in room.bundles],
             "texts": question_texts(room),  # 老師已驗證，可見完整題目文字
             # 老師已驗證：可見所有輪次的送出紀錄（組別、題目、內容、伺服器時間）
             "submissions": [
@@ -87,6 +92,7 @@ def snapshot(room: Room) -> dict:
                     "round": s.round,
                     "submittedAt": iso(s.submitted_at),
                     "rank": s.rank,
+                    "bundleId": s.bundle_id,
                 }
                 for s in room.submissions
             ],

@@ -44,6 +44,22 @@ def question_texts(room: "Room") -> dict[str, str]:
 
 
 @dataclass
+class QuestionBundle:
+    """題組：老師建立房間時綁定、須一起送出的相鄰題目（房間層級的送出單位設定）。
+
+    題目本身仍為扁平清單、不因綁定而改變（原則 I）；建立後不可修改。
+    """
+
+    id: str  # B1、B2…（依第一個成員在題目清單中的位置編號）
+    question_ids: list[str]  # 依題目順序，≥ 2 題
+
+
+def bundle_public(b: QuestionBundle) -> dict:
+    """題組設定不含任何作答內容，可給所有學生。"""
+    return {"id": b.id, "questionIds": list(b.question_ids)}
+
+
+@dataclass
 class SheetSource:
     url: str
     spreadsheet_id: str
@@ -55,7 +71,10 @@ class SheetSource:
 
 @dataclass
 class Submission:
-    """組別對某題的一次有效送出（僅追加）；時間由後端 UTC 產生，客戶端不得提供。"""
+    """組別對某題的一次有效送出（僅追加）；時間由後端 UTC 產生，客戶端不得提供。
+
+    題組送出時，每個成員題目各一筆，共用 seq／submitted_at／rank，並帶 bundle_id。
+    """
 
     group_name: str
     normalized_name: str
@@ -64,7 +83,8 @@ class Submission:
     answer: str  # 非空白且 ≤ 500 字元，保存原文
     submitted_at: datetime  # 後端 UTC，僅供顯示，不參與排序判定
     seq: int  # 房間內單調遞增處理序（仲裁依據），建立後不可改寫
-    rank: int  # 同一 (round, question_id) 的名次（1 起算），建立後不可改寫
+    rank: int  # 同一 (round, unitId) 的名次（1 起算），建立後不可改寫
+    bundle_id: str | None = None  # 題組送出時為題組 id；單題送出為 None
 
 
 @dataclass
@@ -96,9 +116,13 @@ class Room:
     # 去重索引：(round, normalized_name, question_id) -> Submission（由 submissions 推得）
     submission_index: dict[tuple[int, str, str], Submission] = field(default_factory=dict)
     questions: list[Question] = field(default_factory=list)
-    # 順位仲裁（Step 5）：處理序計數與每題每輪已排名數（皆由 submissions 推得）
+    # 順位仲裁（Step 5）：處理序計數與每個搶答單位每輪已排名數（皆由 submissions 推得）
+    # rank_counts 鍵為 (round, unitId)；unitId＝題目所屬題組 id，未綁定為題目 id
     next_seq: int = 1
     rank_counts: dict[tuple[int, str], int] = field(default_factory=dict)
+    # 題組（Step 7）：建立房間時確定、之後不可修改；bundle_of 為 questionId -> bundleId（由 bundles 推得）
+    bundles: list[QuestionBundle] = field(default_factory=list)
+    bundle_of: dict[str, str] = field(default_factory=dict)
 
 
 class AppError(Exception):
@@ -139,6 +163,10 @@ _ERRORS = {
     "SHEET_QUESTIONS_INVALID": ("題號有問題，請修正試算表", 422),
     "SHEET_TOO_MANY_QUESTIONS": ("題數超過上限（50）", 422),
     "SHEET_CHANGED": ("試算表內容已變動，請重新讀取並確認", 409),
+    "BUNDLES_INVALID": ("題組設定有誤", 400),
+    "BUNDLE_NOT_FOUND": ("找不到該題組", 400),
+    "BUNDLE_INCOMPLETE": ("請填完題組內所有題目", 400),
+    "QUESTION_IN_BUNDLE": ("此題屬於題組，請整組一起送出", 400),
     "BAD_REQUEST": ("請求格式錯誤", 400),
 }
 

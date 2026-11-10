@@ -1,5 +1,5 @@
 @startuml class
-title 房間、階段、題目表單、答案提交、搶答順位與結果公布 - 類別圖
+title 房間、階段、題目表單、題組、答案提交、搶答順位與結果公布 - 類別圖
 class Room {
   code : string
   status : Open | Closed
@@ -20,6 +20,15 @@ class Question {
   cell : string (作答格位置，僅伺服器保存)
   text : string (題目欄文字；搶答開始後才送學生)
 }
+class QuestionBundle {
+  id : string (如 B1)
+  questionIds : list<string> (≥2，題目清單中相鄰)
+}
+note right of QuestionBundle
+  老師於預覽時設定、隨房間建立確定，之後不可改；
+  一題最多屬於一個題組；題目本身仍為扁平清單。
+  題組為一個搶答單位：一顆送出鈕、一個名次。
+end note
 class SheetSource {
   url : string
   spreadsheetId : string
@@ -36,26 +45,29 @@ end note
 class Submission <<append-only>> {
   groupName : string
   questionId : string
+  bundleId : string | null (題組送出時)
   round : int
   answer : string (≤500)
   submittedAt : datetime (UTC, 後端產生，僅供顯示)
   seq : int (房間內處理序，仲裁依據)
-  rank : int (同題同輪名次，確定後不改寫)
+  rank : int (同搶答單位同輪名次，確定後不改寫)
 }
 note right of Submission
-  同一組別+題目+輪次最多一筆有效；
+  同一組別+搶答單位+輪次最多一筆有效；
+  題組送出=每個成員各一筆，共用 submittedAt/seq/rank，全有或全無；
   內容僅老師與該組可見；
   rank/seq 僅老師可見，名次=最快送出，非最終獲勝。
 end note
 class QuestionProgress <<derived>> {
   questionId : string
+  bundleId : string | null (同題組各題名次清單相同)
   leaderGroup : string | null
   submittedCount : int
   ranking : list
 }
 class GroupLeadTally <<derived>> {
   groupName : string
-  leadCount : int (領先第1名題數)
+  leadCount : int (領先第1名題數；N題題組計N)
 }
 class RoundResult <<derived>> {
   round : int
@@ -69,6 +81,7 @@ class ResultItem <<derived>> {
 note right of RoundResult
   結束搶答時由各題 rank=1 的送出推導，只含第1名；
   其餘組別名次與答案不公布；僅在 Ended 階段提供。
+  題組各題 rank 相同，故同題組各題 winner 一致。
 end note
 class PhaseChange <<append-only>> {
   phase : Answering | Ended
@@ -102,5 +115,8 @@ RoundResult "1" *-- "0..*" ResultItem
 QuestionProgress ..> GroupLeadTally : 統計
 Room "1" *-- "0..*" Question : 題目(依題號排序)
 Room "1" o-- "0..1" SheetSource : 學習單來源
+Room "1" *-- "0..*" QuestionBundle : 題組設定(建立後固定)
+QuestionBundle "0..1" o-- "2..*" Question : 綁定相鄰題目
+QuestionBundle "1" -- "0..*" Submission : 整組一次送出
 Room "1" *-- "0..*" Group : 包含\n(組名於房間內唯一)
 @enduml

@@ -73,6 +73,25 @@ def make_started_room(client, start=True):
     return code, token
 
 
+def make_bundle_room(client, bundles=(("3", "4"),), start=True):
+    """建立含題目（單題範例 Q1～Q6）且帶題組的房間。回傳 (code, teacher_token, 建立回應)。"""
+    p = client.post("/api/sheets/preview", json={"url": SHEET_URL}).json()
+    r = client.post(
+        "/api/rooms",
+        json={
+            "sheetUrl": SHEET_URL,
+            "fingerprint": p["fingerprint"],
+            "bundles": [list(b) for b in bundles],
+        },
+    )
+    assert r.status_code == 201, r.json()
+    body = r.json()
+    code, token = body["code"], body["teacherToken"]
+    if start:
+        assert client.post(f"/api/rooms/{code}/phase/start", headers=auth(token)).status_code == 200
+    return code, token, body
+
+
 def drain(ws, n):
     """依序讀取 n 則訊息。"""
     return [ws.receive_json() for _ in range(n)]

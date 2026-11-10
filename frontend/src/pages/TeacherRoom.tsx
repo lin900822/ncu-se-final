@@ -6,6 +6,7 @@ import {
   endAnswering,
   loadTeacherSession,
   startAnswering,
+  type BundleItem,
   type QuestionItem,
   type RoomPhase,
   type TeacherSession,
@@ -22,6 +23,7 @@ interface SubmissionItem {
   round: number
   submittedAt: string
   rank: number
+  bundleId?: string | null
 }
 
 interface GroupItem {
@@ -37,6 +39,7 @@ export default function TeacherRoom() {
   const [closed, setClosed] = useState(false)
   const [roomPhase, setRoomPhase] = useState<RoomPhase>('Waiting')
   const [questions, setQuestions] = useState<QuestionItem[]>([])
+  const [bundles, setBundles] = useState<BundleItem[]>([])
   const [sheetTitle, setSheetTitle] = useState<string | null>(null)
   const [texts, setTexts] = useState<Record<string, string>>({})
   const [round, setRound] = useState(0)
@@ -59,6 +62,7 @@ export default function TeacherRoom() {
           const room = msg.room as {
             phase: RoomPhase
             questions?: QuestionItem[]
+            bundles?: BundleItem[]
             sheetTitle?: string | null
             texts?: Record<string, string>
             round?: number
@@ -68,6 +72,7 @@ export default function TeacherRoom() {
           }
           setRoomPhase(room.phase)
           setQuestions(room.questions ?? [])
+          setBundles(room.bundles ?? [])
           setSheetTitle(room.sheetTitle ?? null)
           setTexts(room.texts ?? {})
           setRound(room.round ?? 0)
@@ -88,6 +93,7 @@ export default function TeacherRoom() {
           round: msg.round as number,
           submittedAt: msg.submittedAt as string,
           rank: msg.rank as number,
+          bundleId: (msg.bundleId as string | null | undefined) ?? null,
         }
         setSubmissions((prev) => [...prev, item])
         break
@@ -240,7 +246,7 @@ export default function TeacherRoom() {
         ) : (
           <>
             {sheetTitle && <p className="text-sm text-slate-500">來源分頁：{sheetTitle}</p>}
-            <QuestionList questions={questions} texts={texts} />
+            <QuestionList questions={questions} texts={texts} bundles={bundles} />
           </>
         )}
       </section>
@@ -248,7 +254,7 @@ export default function TeacherRoom() {
       <section className="space-y-2 rounded-xl bg-white p-6 shadow-sm">
         <h2 className="text-xl font-bold">{roomPhase === 'Ended' && result ? '最終結果' : '即時進度板'}</h2>
         {roomPhase === 'Ended' && result && (
-          <ResultBoard result={result} questions={questions} myGroup="" />
+          <ResultBoard result={result} questions={questions} myGroup="" bundles={bundles} />
         )}
         <RankingBoard board={board} questions={questions} />
       </section>
