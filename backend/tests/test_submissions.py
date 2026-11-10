@@ -65,6 +65,7 @@ def test_phase_gate(client, use_sheet):
         assert submit(ws, "1", "CPU")["type"] == "submitted"
         _end(client, code, token)
         assert ws.receive_json()["phase"] == "Ended"
+        assert ws.receive_json()["type"] == "round_result"
         assert submit(ws, "2", "GPU")["code"] == "PHASE_LOCKED"  # 已結束
         assert len(store.rooms[code].submissions) == 1
     finally:
@@ -102,7 +103,7 @@ def test_new_round_resets_but_keeps_history(client, use_sheet):
     try:
         submit(ws, "1", "CPU")
         _end(client, code, token)
-        drain(ws, 1)
+        drain(ws, 2)  # phase_changed + round_result
         _start(client, code, token)
         drain(ws, 2)  # phase_changed(round 2) + question_texts
         m = submit(ws, "1", "新一輪")
@@ -167,7 +168,7 @@ def test_snapshot_submissions_all_rounds_and_recover(client, use_sheet):
     try:
         submit(ws, "1", "CPU")
         _end(client, code, token)
-        drain(ws, 1)
+        drain(ws, 2)  # phase_changed + round_result
         _start(client, code, token)
         drain(ws, 2)
         submit(ws, "1", "第二輪")

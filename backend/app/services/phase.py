@@ -5,7 +5,7 @@
 """
 from ..models import PhaseChange, Room, err, iso, question_texts, utcnow
 from ..realtime import realtime
-from . import ranking, rooms
+from . import ranking, results, rooms
 
 
 async def _broadcast(room: Room, change: PhaseChange) -> None:
@@ -55,6 +55,10 @@ async def end_answering(room: Room) -> tuple[str, int, bool]:
     room.phase_log.append(change)
     rooms.touch(room)
     await _broadcast(room, change)
+    # 結算：每輪僅一次（重複結束走上方早退路徑，不會到這裡）
+    message = {"type": "round_result", **results.build_result(room)}
+    await realtime.broadcast_result(room.code, message)
+    await realtime.broadcast_to_teachers(room.code, message)
     return room.phase, room.round, True
 
 

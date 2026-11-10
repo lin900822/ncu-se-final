@@ -9,6 +9,7 @@ import {
   type RoomPhase,
 } from '../lib/api'
 import { clearDraft, loadDraft, saveDraft } from '../lib/drafts'
+import ResultBoard, { type ResultData } from '../components/ResultBoard'
 import { useReconnectingSocket } from '../hooks/useReconnectingSocket'
 
 type View = 'form' | 'joining' | 'joined' | 'closed'
@@ -20,6 +21,7 @@ export default function StudentJoin() {
   const [active, setActive] = useState<{ code: string; name: string } | null>(saved.current)
   const [phase, setPhase] = useState<View>(saved.current ? 'joining' : 'form')
   const [error, setError] = useState('')
+  const [result, setResult] = useState<ResultData | null>(null)
   const [joinedName, setJoinedName] = useState('')
   const [joinedCode, setJoinedCode] = useState('')
   const [notice, setNotice] = useState('')
@@ -50,6 +52,7 @@ export default function StudentJoin() {
     setSubmitted({})
     setOthersSubmitted([])
     setErrors({})
+    setResult(null)
   }, [])
 
   // 後端階段為唯一事實來源；round 增加（新一輪開始）才清空填空格與草稿，同輪重連不清空
@@ -76,7 +79,11 @@ export default function StudentJoin() {
   const onMessage = useCallback((msg: Record<string, unknown>) => {
     if (msg.type === 'phase_changed') {
       applyPhase(msg.phase as RoomPhase, msg.round as number)
+      if (msg.phase === 'Answering') setResult(null) // 新一輪開始：離開結果頁
       if (msg.phase !== 'Answering') setTexts({}) // 結束搶答後隱藏題目文字
+    } else if (msg.type === 'round_result') {
+      // 結算後公布：每題只有第一名的組別與答案
+      setResult({ round: msg.round as number, results: msg.results as ResultData['results'] })
     } else if (msg.type === 'submitted') {
       // 同組任一視窗送出（含自己）：該題變「已送出」，內容以伺服器為準
       const qid = msg.questionId as string
@@ -115,6 +122,7 @@ export default function StudentJoin() {
       setSubmitted(mine)
       setValues((prev) => ({ ...prev, ...mine }))
       setOthersSubmitted((msg.submittedByOthers as string[]) ?? [])
+      setResult((msg.result as ResultData | null) ?? null) // 後端還原（重連／晚加入）
       setJoinedName(group.name)
       setJoinedCode(room.code)
       if (a) saveStudentJoin({ code: room.code, name: group.name })
@@ -125,6 +133,7 @@ export default function StudentJoin() {
       setRoomPhase('Ended')
       setTexts({})
       resetLocal()
+      setResult(null)
       clearStudentJoin()
       setActive(null)
       setPhase('closed')
@@ -205,7 +214,10 @@ export default function StudentJoin() {
           {roomPhase === 'Answering' ? '搶答中' : roomPhase === 'Ended' ? '搶答已結束' : '等待搶答'}
           {status !== 'open' && '（重新連線中…）'}
         </p>
-        {questions.length > 0 && (
+        {roomPhase === 'Ended' && result && (
+          <ResultBoard result={result} questions={questions} myGroup={joinedName} />
+        )}
+        {!(roomPhase === 'Ended' && result) && questions.length > 0 && (
           <QuestionFields
             questions={questions}
             values={values}

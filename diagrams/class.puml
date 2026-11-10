@@ -1,5 +1,5 @@
 @startuml class
-title 房間、階段、題目表單、答案提交與搶答順位 - 類別圖
+title 房間、階段、題目表單、答案提交、搶答順位與結果公布 - 類別圖
 class Room {
   code : string
   status : Open | Closed
@@ -57,6 +57,19 @@ class GroupLeadTally <<derived>> {
   groupName : string
   leadCount : int (領先第1名題數)
 }
+class RoundResult <<derived>> {
+  round : int
+  items : list<ResultItem>
+}
+class ResultItem <<derived>> {
+  questionId : string
+  winnerGroup : string | null (無人搶答為 null)
+  answer : string | null
+}
+note right of RoundResult
+  結束搶答時由各題 rank=1 的送出推導，只含第1名；
+  其餘組別名次與答案不公布；僅在 Ended 階段提供。
+end note
 class PhaseChange <<append-only>> {
   phase : Answering | Ended
   round : int
@@ -84,6 +97,8 @@ Room "1" *-- "0..*" PhaseChange : 階段變更紀錄
 Room "1" *-- "0..*" Submission : 送出紀錄
 Group "1" -- "0..*" Submission : 提交
 Submission ..> QuestionProgress : 推得
+Submission ..> ResultItem : rank=1 推得
+RoundResult "1" *-- "0..*" ResultItem
 QuestionProgress ..> GroupLeadTally : 統計
 Room "1" *-- "0..*" Question : 題目(依題號排序)
 Room "1" o-- "0..1" SheetSource : 學習單來源

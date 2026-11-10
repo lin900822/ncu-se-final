@@ -95,6 +95,7 @@ def test_end_locks_and_rounds_and_log(client):
         assert r.json() == {"phase": "Ended", "round": 1, "changed": True}
         m = ws.receive_json()
         assert set(m.keys()) == PHASE_KEYS and m["phase"] == "Ended"
+        assert ws.receive_json()["type"] == "round_result"  # Step 6：結算公布
         ws.send_json({"type": "submit"})
         assert ws.receive_json()["code"] == "PHASE_LOCKED"
         # 冪等

@@ -3,7 +3,7 @@ from ..models import Room, err, iso, question_public, question_texts, utcnow
 from ..normalize import normalize_room_code
 from ..realtime import realtime
 from ..store import store
-from . import ranking
+from . import ranking, results
 
 
 def create_room(sheet=None) -> Room:
@@ -91,6 +91,7 @@ def snapshot(room: Room) -> dict:
                 for s in room.submissions
             ],
             "board": ranking.build_board(room),
+            "result": results.build_result(room),
         },
         "groups": [g.to_dict() for g in groups],
         "count": len(groups),

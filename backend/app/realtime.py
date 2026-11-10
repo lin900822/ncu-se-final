@@ -6,6 +6,7 @@
   只能傳房間層級訊息（階段、題目文字）或匿名提示 {type, questionId, round}。
 - 組別清單與狀態只會送給老師連線。
 - 名次、看板、領先組別與領先題數（Step 5）僅能經 `broadcast_to_teachers` 傳送。
+- 結算後的結果公布（Step 6）只能經 `broadcast_result`（學生）與 `broadcast_to_teachers`（老師）。
 """
 from fastapi import WebSocket
 
@@ -79,6 +80,16 @@ class Realtime:
         """同房間除指定組之外的所有視窗。僅限匿名提示，嚴禁含答案、組名、組數、時間。"""
         for (c, name), conns in list(self.students.items()):
             if c == code and name != exclude_name:
+                for ws in list(conns):
+                    await send_json_safe(ws, message)
+
+    async def broadcast_result(self, code: str, message: dict) -> None:
+        """結算後公布結果給房間所有學生視窗。
+
+        僅限 `round_result`（每題僅第 1 名的組名＋答案）；嚴禁用於其他訊息（原則 III）。
+        """
+        for (c, _name), conns in list(self.students.items()):
+            if c == code:
                 for ws in list(conns):
                     await send_json_safe(ws, message)
 

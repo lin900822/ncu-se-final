@@ -107,7 +107,7 @@ def test_rejoin_restores_my_submissions(client, use_sheet):
             c3.__exit__(None, None, None)
         # 新一輪開始後重置
         client.post(f"/api/rooms/{code}/phase/end", headers=auth(token))
-        drain(w1, 1)
+        drain(w1, 2)
         client.post(f"/api/rooms/{code}/phase/start", headers=auth(token))
         drain(w1, 2)
         c4, w4, j4 = join_student(client, code, "第 1 組")

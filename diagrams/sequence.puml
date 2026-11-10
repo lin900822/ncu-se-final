@@ -1,5 +1,5 @@
 @startuml sequence
-title 房間、階段、題目表單、答案提交與搶答順位 - 時序圖
+title 房間、階段、題目表單、答案提交、搶答順位與結果公布 - 時序圖
 actor 老師
 actor 學生
 participant "老師端" as T
@@ -60,7 +60,16 @@ opt 老師結束搶答
   B -> B : 階段=Ended，記錄UTC時間
   B -> T : phase_changed(Ended)
   B -> S : phase_changed(Ended)
-  S -> S : 輸入框鎖定(保留未送出文字)並隱藏題目文字
+  B -> B : 結算：各題第1名組別+答案(無人搶答標示)
+  B -> T : round_result(最終結果)
+  B -> S : round_result(僅第1名組別與答案)
+  B -> S2 : round_result
+  B -> O : round_result
+  S -> S : 輸入框鎖定並隱藏題目文字\n自動切換至結果頁(標示「本組搶下」)
+  opt 學生離線後重連/結束後才加入
+    S -> B : join(code, groupName)
+    B --> S : joined(階段=Ended + 結果)
+  end
 end
 opt 學生送出某題答案
   S -> B : submit(題目, 答案)

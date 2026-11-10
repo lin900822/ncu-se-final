@@ -5,7 +5,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..models import AppError, err, question_public, question_texts
 from ..realtime import close_safe, realtime, send_json_safe
-from ..services import groups, ranking, rooms, submissions
+from ..services import groups, ranking, results, rooms, submissions
 
 router = APIRouter()
 
@@ -59,6 +59,8 @@ async def student_ws(ws: WebSocket):
                 # 還原本組本輪已送出的內容；他組只給匿名的題目識別碼（Step 4）
                 "mySubmissions": submissions.my_submissions(room, group),
                 "submittedByOthers": submissions.submitted_by_others(room, group),
+                # 結算後（Ended）才有結果；其餘階段為 None（Step 6）
+                "result": results.build_result(room) if room.status == "Open" else None,
             },
         )
         await groups.announce_join(room, group, is_new, was_online)

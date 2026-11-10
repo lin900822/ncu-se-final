@@ -11,6 +11,7 @@ import {
   type TeacherSession,
 } from '../lib/api'
 import { QuestionList } from '../components/QuestionFields'
+import ResultBoard, { type ResultData } from '../components/ResultBoard'
 import RankingBoard, { type Board } from '../components/RankingBoard'
 import { useReconnectingSocket } from '../hooks/useReconnectingSocket'
 
@@ -40,6 +41,7 @@ export default function TeacherRoom() {
   const [texts, setTexts] = useState<Record<string, string>>({})
   const [round, setRound] = useState(0)
   const [submissions, setSubmissions] = useState<SubmissionItem[]>([])
+  const [result, setResult] = useState<ResultData | null>(null)
   const [board, setBoard] = useState<Board | null>(null)
   const [revoked, setRevoked] = useState(false)
   const [error, setError] = useState('')
@@ -62,6 +64,7 @@ export default function TeacherRoom() {
             round?: number
             submissions?: SubmissionItem[]
             board?: Board
+            result?: ResultData | null
           }
           setRoomPhase(room.phase)
           setQuestions(room.questions ?? [])
@@ -70,6 +73,7 @@ export default function TeacherRoom() {
           setRound(room.round ?? 0)
           setSubmissions(room.submissions ?? [])
           setBoard(room.board ?? null)
+          setResult(room.result ?? null)
         }
         break
       case 'question_texts':
@@ -92,7 +96,11 @@ export default function TeacherRoom() {
         // 完整看板直接覆蓋（後端為事實來源）
         setBoard(msg as unknown as Board)
         break
+      case 'round_result':
+        setResult({ round: msg.round as number, results: msg.results as ResultData['results'] })
+        break
       case 'phase_changed':
+        if (msg.phase === 'Answering') setResult(null)
         setRound(msg.round as number)
         setRoomPhase(msg.phase as RoomPhase)
         break
@@ -238,7 +246,10 @@ export default function TeacherRoom() {
       </section>
 
       <section className="space-y-2 rounded-xl bg-white p-6 shadow-sm">
-        <h2 className="text-xl font-bold">即時進度板</h2>
+        <h2 className="text-xl font-bold">{roomPhase === 'Ended' && result ? '最終結果' : '即時進度板'}</h2>
+        {roomPhase === 'Ended' && result && (
+          <ResultBoard result={result} questions={questions} myGroup="" />
+        )}
         <RankingBoard board={board} questions={questions} />
       </section>
 

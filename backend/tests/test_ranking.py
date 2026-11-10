@@ -88,7 +88,7 @@ def test_new_round_restarts_ranks_and_keeps_old(client, use_sheet):
         submit(w2, "1", "b")
         w1.receive_json()
         client.post(f"/api/rooms/{code}/phase/end", headers=auth(token))
-        drain(w1, 1), drain(w2, 1)
+        drain(w1, 2), drain(w2, 2)
         client.post(f"/api/rooms/{code}/phase/start", headers=auth(token))
         drain(w1, 2), drain(w2, 2)
         submit(w2, "1", "c")

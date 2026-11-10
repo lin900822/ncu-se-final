@@ -77,7 +77,7 @@ def test_snapshot_restores_and_new_round_clears(client, use_sheet):
             assert snap["room"]["board"] == ranking.build_board(store.rooms[code])
             assert snap["room"]["board"]["questions"][0]["leader"] == "第 1 組"
             client.post(f"/api/rooms/{code}/phase/end", headers=auth(token))
-            drain(tws, 1)
+            drain(tws, 2)  # phase_changed + round_result
             client.post(f"/api/rooms/{code}/phase/start", headers=auth(token))
             msgs = drain(tws, 3)  # phase_changed, question_texts, board
             b = [m for m in msgs if m["type"] == "board"][0]
