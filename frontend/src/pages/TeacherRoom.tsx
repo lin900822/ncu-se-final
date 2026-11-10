@@ -1,0 +1,171 @@
+import { useCallback, useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import {
+  clearTeacherSession,
+  closeRoom,
+  loadTeacherSession,
+  type TeacherSession,
+} from '../lib/api'
+import { useReconnectingSocket } from '../hooks/useReconnectingSocket'
+
+interface GroupItem {
+  name: string
+  online: boolean
+  joinedAt: string
+}
+
+export default function TeacherRoom() {
+  const nav = useNavigate()
+  const [session] = useState<TeacherSession | null>(() => loadTeacherSession())
+  const [groups, setGroups] = useState<GroupItem[]>([])
+  const [closed, setClosed] = useState(false)
+  const [revoked, setRevoked] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!session) nav('/', { replace: true })
+  }, [session, nav])
+
+  const onMessage = useCallback((msg: Record<string, unknown>) => {
+    switch (msg.type) {
+      case 'snapshot':
+        // 後端為事實來源：以快照整份覆蓋
+        setGroups(msg.groups as GroupItem[])
+        break
+      case 'group_joined':
+        setGroups((prev) => {
+          const g = msg.group as GroupItem
+          return prev.some((x) => x.name === g.name) ? prev : [...prev, g]
+        })
+        break
+      case 'group_status':
+        setGroups((prev) =>
+          prev.map((g) => (g.name === msg.name ? { ...g, online: msg.online as boolean } : g)),
+        )
+        break
+      case 'room_closed':
+        setClosed(true)
+        break
+      case 'token_revoked':
+        clearTeacherSession()
+        setRevoked(true)
+        break
+    }
+  }, [])
+
+  const path =
+    session && !closed && !revoked
+      ? `/ws/teacher?code=${encodeURIComponent(session.code)}&token=${encodeURIComponent(session.teacherToken)}`
+      : null
+
+  const { status } = useReconnectingSocket({
+    path,
+    onMessage,
+    noReconnectCodes: [4401],
+    onClose: (code) => {
+      if (code === 4401) {
+        clearTeacherSession()
+        setRevoked(true)
+      }
+    },
+  })
+
+  async function onClose() {
+    if (!session) return
+    if (!window.confirm('確定要結束房間嗎？結束後學生將無法再加入。')) return
+    try {
+      await closeRoom(session.code, session.teacherToken)
+      setClosed(true)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  if (!session) return null
+
+  if (revoked) {
+    return (
+      <div className="space-y-4">
+        <p role="alert" className="rounded bg-amber-50 p-4 text-amber-800">
+          身分已失效，請以恢復碼回復。
+        </p>
+        <Link to="/" className="text-indigo-600 underline">
+          回首頁
+        </Link>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <section className="rounded-xl bg-white p-6 text-center shadow-sm">
+        <p className="text-slate-500">房間代碼</p>
+        <p className="my-2 font-mono text-6xl font-bold tracking-widest sm:text-7xl">
+          {session.code}
+        </p>
+        <p className="text-sm text-slate-500">
+          恢復碼：<span className="font-mono font-semibold">{session.recoveryCode}</span>
+          （換裝置時需要，請妥善保存）
+        </p>
+      </section>
+
+      {closed && (
+        <div role="status" className="space-y-2 rounded bg-slate-200 p-3 text-center">
+          <p className="font-semibold">房間已結束</p>
+          <button
+            onClick={() => {
+              clearTeacherSession()
+              nav('/', { replace: true })
+            }}
+            className="rounded bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700"
+          >
+            回首頁，建立新房間
+          </button>
+        </div>
+      )}
+
+      <section className="rounded-xl bg-white p-6 shadow-sm">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-xl font-bold">目前 {groups.length} 組</h2>
+          {!closed && status !== 'open' && (
+            <span className="text-sm text-amber-600">連線中…</span>
+          )}
+        </div>
+        {groups.length === 0 ? (
+          <p className="text-slate-500">尚無組別加入</p>
+        ) : (
+          <ul className="grid gap-2 sm:grid-cols-2">
+            {groups.map((g) => (
+              <li
+                key={g.name}
+                className="flex items-center justify-between gap-2 rounded border border-slate-200 px-3 py-2"
+              >
+                <span className="break-all font-medium">{g.name}</span>
+                <span
+                  className={`shrink-0 text-sm ${g.online ? 'text-emerald-600' : 'text-slate-400'}`}
+                >
+                  <span aria-hidden>●</span> {g.online ? '在線' : '離線'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {error && (
+        <p role="alert" className="rounded bg-red-50 p-3 text-red-700">
+          {error}
+        </p>
+      )}
+
+      {!closed && (
+        <button
+          onClick={onClose}
+          className="rounded border border-red-300 px-4 py-2 text-red-600 hover:bg-red-50"
+        >
+          結束房間
+        </button>
+      )}
+    </div>
+  )
+}

@@ -1,0 +1,38 @@
+@startuml sequence
+title 房間建立與學生加入 - 時序圖
+actor 老師
+actor 學生
+participant "老師端" as T
+participant "學生端" as S
+participant "後端" as B
+老師 -> T : 建立房間
+T -> B : createRoom()
+B --> T : 房間代碼 + 老師憑證 + 恢復碼
+T -> B : 訂閱組別清單
+opt 老師換裝置
+  老師 -> T : 輸入恢復碼
+  T -> B : recover(recoveryCode)
+  B --> T : 新老師憑證 + 目前房間狀態
+end
+學生 -> S : 輸入代碼與組名
+S -> B : join(code, groupName)
+B -> B : 驗證房間開放\n正規化組名並檢查唯一性\n更新最後活動時間
+alt 房間不存在/已結束(含閒置逾時)
+  B --> S : 錯誤訊息
+else 組名已存在且該組在線
+  B --> S : 拒絕：該組目前在線
+else 成功(新組別或離線組別重新連線)
+  B --> S : 加入成功
+  B -> T : 即時推送組別清單更新
+end
+opt 學生關閉頁面或斷線
+  S -[#red]-> B : 連線中斷(含心跳逾時)
+  B -> B : 該組標記離線(組別保留)
+  B -> T : group_status(online=false)
+end
+opt 老師結束房間 / 閒置2小時
+  T -> B : close(憑證)
+  B -> T : room_closed
+  B -> S : room_closed
+end
+@enduml

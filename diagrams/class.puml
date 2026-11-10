@@ -1,0 +1,30 @@
+@startuml class
+title 房間建立與學生加入 - 類別圖
+class Room {
+  code : string
+  status : Open | Closed
+  createdAt : datetime
+  lastActivityAt : datetime
+  teacherToken : string
+  recoveryCode : string
+  closedReason : Manual | IdleTimeout
+  closedAt : datetime
+}
+class Group {
+  name : string
+  normalizedName : string
+  online : boolean
+  joinedAt : datetime
+}
+class Teacher {
+  token : string
+}
+note right of Room
+  recoveryCode 與 code 不同，
+  房間代碼不具老師權限。
+  lastActivityAt 滿 2 小時無活動
+  則自動 Closed (IdleTimeout)。
+end note
+Teacher "1" -- "0..*" Room : 建立
+Room "1" *-- "0..*" Group : 包含\n(組名於房間內唯一)
+@enduml
