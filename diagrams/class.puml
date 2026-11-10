@@ -1,5 +1,5 @@
 @startuml class
-title 房間建立與學生加入 - 類別圖
+title 房間建立、加入與階段同步 - 類別圖
 class Room {
   code : string
   status : Open | Closed
@@ -9,6 +9,14 @@ class Room {
   recoveryCode : string
   closedReason : Manual | IdleTimeout
   closedAt : datetime
+  phase : Waiting | Answering | Ended
+  round : int (每次開始搶答 +1)
+}
+class PhaseChange <<append-only>> {
+  phase : Answering | Ended
+  round : int
+  by : Teacher
+  changedAt : datetime (UTC, 後端產生)
 }
 class Group {
   name : string
@@ -26,5 +34,6 @@ note right of Room
   則自動 Closed (IdleTimeout)。
 end note
 Teacher "1" -- "0..*" Room : 建立
+Room "1" *-- "0..*" PhaseChange : 階段變更紀錄
 Room "1" *-- "0..*" Group : 包含\n(組名於房間內唯一)
 @enduml

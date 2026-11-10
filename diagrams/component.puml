@@ -1,5 +1,5 @@
 @startuml component
-title 房間建立與學生加入 - 組件圖
+title 房間建立、加入與階段同步 - 組件圖
 actor 老師
 actor 學生
 component "老師端畫面" as TUI
@@ -7,12 +7,18 @@ component "學生端畫面" as SUI
 package "後端" {
   component "房間服務\n(代碼產生/驗證\n老師憑證與恢復碼)" as RoomSvc
   component "組別服務\n(組名正規化/唯一性\n在線時拒絕重複加入)" as GroupSvc
+  component "階段服務\n(開始/結束搶答\n老師憑證驗證\n階段為唯一事實來源)" as PhaseSvc
   component "房間逾時排程\n(閒置2小時自動結束)" as Expiry
   component "即時廣播通道" as Realtime
   database "房間狀態儲存" as Store
 }
 老師 --> TUI
 學生 --> SUI
+TUI --> PhaseSvc : 開始/結束搶答
+PhaseSvc --> RoomSvc : 驗證老師憑證/房間開放
+PhaseSvc --> Store : 追加階段紀錄
+PhaseSvc --> Realtime : 階段變更事件(不含作答內容)
+Realtime --> SUI : 階段(解鎖/鎖定)
 TUI --> RoomSvc : 建立/結束房間\n以憑證或恢復碼回復
 SUI --> GroupSvc : 以代碼+組名加入
 GroupSvc --> RoomSvc : 驗證房間開放\n更新最後活動時間

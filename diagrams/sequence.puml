@@ -1,5 +1,5 @@
 @startuml sequence
-title 房間建立與學生加入 - 時序圖
+title 房間建立、加入與階段同步 - 時序圖
 actor 老師
 actor 學生
 participant "老師端" as T
@@ -22,8 +22,32 @@ alt 房間不存在/已結束(含閒置逾時)
 else 組名已存在且該組在線
   B --> S : 拒絕：該組目前在線
 else 成功(新組別或離線組別重新連線)
-  B --> S : 加入成功
+  B --> S : 加入成功 + 目前階段(預設等待搶答→輸入鎖定)
   B -> T : 即時推送組別清單更新
+end
+opt 老師開始搶答
+  老師 -> T : 點擊「開始搶答」
+  T -> B : startAnswering(憑證)
+  B -> B : 驗證老師憑證\n階段=Answering，記錄UTC時間
+  B -> T : phase_changed(Answering)
+  B -> S : phase_changed(Answering)\n(不含任何作答內容)
+  S -> S : 輸入框解鎖
+end
+opt 老師結束搶答
+  老師 -> T : 點擊「結束搶答」
+  T -> B : endAnswering(憑證)
+  B -> B : 階段=Ended，記錄UTC時間
+  B -> T : phase_changed(Ended)
+  B -> S : phase_changed(Ended)
+  S -> S : 輸入框鎖定(保留未送出文字)
+end
+opt 學生嘗試送出(submit)
+  S -> B : submit
+  alt 階段非 Answering 或房間已結束
+    B --> S : error PHASE_LOCKED(不關閉連線)
+  else Answering
+    B -> B : 本步驟僅為閘門\n(內容與仲裁由後續步驟)
+  end
 end
 opt 學生關閉頁面或斷線
   S -[#red]-> B : 連線中斷(含心跳逾時)

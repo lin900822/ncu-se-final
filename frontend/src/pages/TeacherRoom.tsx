@@ -3,7 +3,10 @@ import { Link, useNavigate } from 'react-router-dom'
 import {
   clearTeacherSession,
   closeRoom,
+  endAnswering,
   loadTeacherSession,
+  startAnswering,
+  type RoomPhase,
   type TeacherSession,
 } from '../lib/api'
 import { useReconnectingSocket } from '../hooks/useReconnectingSocket'
@@ -19,6 +22,7 @@ export default function TeacherRoom() {
   const [session] = useState<TeacherSession | null>(() => loadTeacherSession())
   const [groups, setGroups] = useState<GroupItem[]>([])
   const [closed, setClosed] = useState(false)
+  const [roomPhase, setRoomPhase] = useState<RoomPhase>('Waiting')
   const [revoked, setRevoked] = useState(false)
   const [error, setError] = useState('')
 
@@ -31,6 +35,10 @@ export default function TeacherRoom() {
       case 'snapshot':
         // 後端為事實來源：以快照整份覆蓋
         setGroups(msg.groups as GroupItem[])
+        setRoomPhase((msg.room as { phase: RoomPhase }).phase)
+        break
+      case 'phase_changed':
+        setRoomPhase(msg.phase as RoomPhase)
         break
       case 'group_joined':
         setGroups((prev) => {
@@ -69,6 +77,20 @@ export default function TeacherRoom() {
       }
     },
   })
+
+  async function onTogglePhase() {
+    if (!session) return
+    setError('')
+    try {
+      const r =
+        roomPhase === 'Answering'
+          ? await endAnswering(session.code, session.teacherToken)
+          : await startAnswering(session.code, session.teacherToken)
+      setRoomPhase(r.phase)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
 
   async function onClose() {
     if (!session) return
@@ -122,6 +144,26 @@ export default function TeacherRoom() {
             回首頁，建立新房間
           </button>
         </div>
+      )}
+
+      {!closed && (
+        <section className="space-y-3 rounded-xl bg-white p-6 text-center shadow-sm">
+          <p className="text-slate-500">目前階段</p>
+          <p className="text-2xl font-bold">
+            {roomPhase === 'Answering' ? '搶答中' : roomPhase === 'Ended' ? '已結束搶答' : '等待搶答'}
+          </p>
+          <button
+            onClick={onTogglePhase}
+            disabled={status !== 'open'}
+            className={`w-full rounded-lg py-3 text-lg font-semibold text-white disabled:opacity-50 ${
+              roomPhase === 'Answering'
+                ? 'bg-red-600 hover:bg-red-700'
+                : 'bg-emerald-600 hover:bg-emerald-700'
+            }`}
+          >
+            {roomPhase === 'Answering' ? '結束搶答' : '開始搶答'}
+          </button>
+        </section>
       )}
 
       <section className="rounded-xl bg-white p-6 shadow-sm">

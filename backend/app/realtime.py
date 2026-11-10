@@ -50,6 +50,15 @@ class Realtime:
     def set_student(self, code: str, normalized_name: str, ws: WebSocket) -> None:
         self.students[(code, normalized_name)] = ws
 
+    async def broadcast_to_students(self, code: str, message: dict) -> None:
+        """僅限不含組別資料的房間層級訊息（如階段）。
+
+        嚴禁傳入任何組別名稱、草稿、答案或送出狀態（原則 III / FR-011）。
+        """
+        for key, ws in list(self.students.items()):
+            if key[0] == code:
+                await send_json_safe(ws, message)
+
     def student_is(self, code: str, normalized_name: str, ws: WebSocket) -> bool:
         return self.students.get((code, normalized_name)) is ws
 

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Header
 from pydantic import BaseModel
 
 from ..models import iso
-from ..services import rooms
+from ..services import phase, rooms
 
 router = APIRouter(prefix="/api/rooms")
 
@@ -39,6 +39,20 @@ async def close(code: str, authorization: str | None = Header(default=None)):
     room = rooms.verify_teacher(code, _bearer(authorization))
     await rooms.close_room(room, "Manual")
     return {"status": "Closed", "closedReason": room.closed_reason}
+
+
+@router.post("/{code}/phase/start")
+async def start_phase(code: str, authorization: str | None = Header(default=None)):
+    room = rooms.verify_teacher(code, _bearer(authorization))
+    p, rnd, changed = await phase.start_answering(room)
+    return {"phase": p, "round": rnd, "changed": changed}
+
+
+@router.post("/{code}/phase/end")
+async def end_phase(code: str, authorization: str | None = Header(default=None)):
+    room = rooms.verify_teacher(code, _bearer(authorization))
+    p, rnd, changed = await phase.end_answering(room)
+    return {"phase": p, "round": rnd, "changed": changed}
 
 
 @router.get("/{code}/status")

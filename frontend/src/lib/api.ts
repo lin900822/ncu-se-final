@@ -102,3 +102,21 @@ export function clearStudentJoin(): void {
     /* ignore */
   }
 }
+
+export type RoomPhase = 'Waiting' | 'Answering' | 'Ended'
+
+export interface PhaseResult {
+  phase: RoomPhase
+  round: number
+  changed: boolean
+}
+
+function phaseRequest(code: string, token: string, action: 'start' | 'end') {
+  return request<PhaseResult>(`/api/rooms/${encodeURIComponent(code)}/phase/${action}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export const startAnswering = (code: string, token: string) => phaseRequest(code, token, 'start')
+export const endAnswering = (code: string, token: string) => phaseRequest(code, token, 'end')

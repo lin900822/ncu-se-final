@@ -66,7 +66,12 @@ def snapshot(room: Room) -> dict:
     groups = sorted(room.groups.values(), key=lambda g: g.joined_at)
     return {
         "type": "snapshot",
-        "room": {"code": room.code, "status": room.status},
+        "room": {
+            "code": room.code,
+            "status": room.status,
+            "phase": room.phase,
+            "round": room.round,
+        },
         "groups": [g.to_dict() for g in groups],
         "count": len(groups),
     }

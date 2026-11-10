@@ -24,6 +24,16 @@ class Group:
 
 
 @dataclass
+class PhaseChange:
+    """階段變更紀錄（僅追加）；時間為後端 UTC。"""
+
+    phase: Literal["Answering", "Ended"]
+    round: int
+    changed_at: datetime
+    by: str = "Teacher"
+
+
+@dataclass
 class Room:
     code: str
     created_at: datetime
@@ -34,6 +44,9 @@ class Room:
     closed_reason: Literal["Manual", "IdleTimeout"] | None = None
     closed_at: datetime | None = None
     groups: dict[str, Group] = field(default_factory=dict)
+    phase: Literal["Waiting", "Answering", "Ended"] = "Waiting"
+    round: int = 0
+    phase_log: list[PhaseChange] = field(default_factory=list)
 
 
 class AppError(Exception):
@@ -53,6 +66,7 @@ _ERRORS = {
     "NAME_TOO_LONG": ("組名最多 20 字元", 400),
     "GROUP_ONLINE": ("該組目前在線", 409),
     "JOIN_TIMEOUT": ("加入逾時，請重試", 400),
+    "PHASE_LOCKED": ("目前不開放作答", 400),
     "BAD_REQUEST": ("請求格式錯誤", 400),
 }
 

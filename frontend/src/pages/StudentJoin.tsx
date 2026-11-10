@@ -1,9 +1,9 @@
 import { useCallback, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { clearStudentJoin, loadStudentJoin, saveStudentJoin } from '../lib/api'
+import { clearStudentJoin, loadStudentJoin, saveStudentJoin, type RoomPhase } from '../lib/api'
 import { useReconnectingSocket } from '../hooks/useReconnectingSocket'
 
-type Phase = 'form' | 'joining' | 'joined' | 'closed'
+type View = 'form' | 'joining' | 'joined' | 'closed'
 
 // 自動重新加入時遇到「該組目前在線」（舊連線尚未被判定離線）的重試設定
 const RETRY_INTERVAL_MS = 2000
@@ -14,12 +14,15 @@ export default function StudentJoin() {
   const [code, setCode] = useState(saved.current?.code ?? '')
   const [name, setName] = useState(saved.current?.name ?? '')
   const [active, setActive] = useState<{ code: string; name: string } | null>(saved.current)
-  const [phase, setPhase] = useState<Phase>(saved.current ? 'joining' : 'form')
+  const [phase, setPhase] = useState<View>(saved.current ? 'joining' : 'form')
   const [error, setError] = useState('')
   const [joinedName, setJoinedName] = useState('')
   const [joinedCode, setJoinedCode] = useState('')
   const [notice, setNotice] = useState('')
   const [connectKey, setConnectKey] = useState(0)
+  const [roomPhase, setRoomPhase] = useState<RoomPhase>('Waiting')
+  const [answer, setAnswer] = useState('')
+  const lastRound = useRef(0)
   const auto = useRef(!!saved.current) // 是否為自動重新加入
   const retries = useRef(0)
   const activeRef = useRef(active)
@@ -30,8 +33,20 @@ export default function StudentJoin() {
     if (a) send({ type: 'join', code: a.code, name: a.name })
   }, [])
 
+  // 後端階段為唯一事實來源；round 增加（新一輪開始）才清空輸入框，同輪重連不清空
+  const applyPhase = useCallback((phase: RoomPhase, round: number) => {
+    setRoomPhase(phase)
+    if (round > lastRound.current) {
+      lastRound.current = round
+      setAnswer('')
+    }
+  }, [])
+
   const onMessage = useCallback((msg: Record<string, unknown>) => {
-    if (msg.type === 'joined') {
+    if (msg.type === 'phase_changed') {
+      applyPhase(msg.phase as RoomPhase, msg.round as number)
+    } else if (msg.type === 'joined') {
+      applyPhase(msg.phase as RoomPhase, msg.round as number)
       const a = activeRef.current
       const group = msg.group as { name: string }
       const room = msg.room as { code: string }
@@ -44,6 +59,7 @@ export default function StudentJoin() {
       setError('')
       setPhase('joined')
     } else if (msg.type === 'room_closed') {
+      setRoomPhase('Ended')
       clearStudentJoin()
       setActive(null)
       setPhase('closed')
@@ -63,9 +79,9 @@ export default function StudentJoin() {
       setError(msg.message as string)
       setPhase(errCode === 'ROOM_CLOSED' ? 'closed' : 'form')
     }
-  }, [])
+  }, [applyPhase])
 
-  useReconnectingSocket({
+  const { status } = useReconnectingSocket({
     path: active ? '/ws/student' : null,
     onOpen,
     onMessage,
@@ -82,6 +98,9 @@ export default function StudentJoin() {
     setError('')
     auto.current = false
     retries.current = 0
+    lastRound.current = 0
+    setAnswer('')
+    setRoomPhase('Waiting')
     setPhase('joining')
     setActive({ code: code.trim(), name: name.trim() })
     setConnectKey((k) => k + 1)
@@ -90,9 +109,15 @@ export default function StudentJoin() {
   function onLeave() {
     clearStudentJoin()
     auto.current = false
+    lastRound.current = 0
+    setAnswer('')
+    setRoomPhase('Waiting')
     setActive(null)
     setPhase('form')
   }
+
+  // 連線中斷時一律視為鎖定，重新收到 joined 後才依後端階段解鎖
+  const unlocked = roomPhase === 'Answering' && status === 'open'
 
   if (phase === 'joined') {
     return (
@@ -100,7 +125,24 @@ export default function StudentJoin() {
         <p className="text-emerald-600">✓ 已加入</p>
         <p className="text-slate-500">房間 {joinedCode}</p>
         <p className="break-all text-4xl font-bold">{joinedName}</p>
-        <p className="text-slate-600">已加入，等待老師開始</p>
+        <p
+          role="status"
+          className={`rounded p-3 text-lg font-semibold ${
+            unlocked ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'
+          }`}
+        >
+          {roomPhase === 'Answering' ? '搶答中' : roomPhase === 'Ended' ? '搶答已結束' : '等待搶答'}
+          {status !== 'open' && '（重新連線中…）'}
+        </p>
+        <textarea
+          aria-label="作答輸入框"
+          value={answer}
+          onChange={(e) => setAnswer(e.target.value)}
+          disabled={!unlocked}
+          placeholder={unlocked ? '請輸入答案' : '目前無法輸入'}
+          rows={4}
+          className="w-full rounded border border-slate-300 px-3 py-2 text-lg disabled:cursor-not-allowed disabled:bg-slate-100"
+        />
         <button onClick={onLeave} className="text-sm text-slate-400 underline">
           離開房間
         </button>
