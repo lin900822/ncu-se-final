@@ -1,35 +1,15 @@
 import json
-from pathlib import Path
 
 import pytest
 
 from app.models import err
-from app.services import sheets as sheets_service
+from app.services import sheets as sheets_service  # noqa: F401
 from app.store import store
 
 from .conftest import auth, join_student
-from .grid_helper import xlsx_to_grid
 
-FIX = Path(__file__).parent / "fixtures"
 URL = "https://docs.google.com/spreadsheets/d/abc123/edit#gid=0"
 PUBLIC_KEYS = {"id", "number", "sub", "label"}
-
-
-@pytest.fixture
-def use_sheet(monkeypatch):
-    """讓讀取試算表改為回傳範例檔的格線（不連 Google）。回傳可切換檔案的函式。"""
-    state = {"name": "single.xlsx"}
-
-    async def fake_fetch(spreadsheet_id, gid):
-        grid, title = xlsx_to_grid(FIX / state["name"])
-        return grid, title, 0
-
-    monkeypatch.setattr(sheets_service, "_fetch", fake_fetch)
-
-    def switch(name):
-        state["name"] = name
-
-    return switch
 
 
 def preview(client, url=URL):

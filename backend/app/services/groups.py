@@ -7,10 +7,14 @@ from ..realtime import realtime
 from . import rooms
 
 
-def join(code: str, raw_name: str, ws: WebSocket) -> tuple[Room, Group, bool, bool]:
-    """同步（無 await）完成驗證與標記，確保同時加入同一組名時只有一方成功。
+MAX_WINDOWS_PER_GROUP = 10
 
-    回傳 (room, group, rejoined, is_new)。
+
+def join(code: str, raw_name: str, ws: WebSocket) -> tuple[Room, Group, bool, bool, bool]:
+    """同步（無 await）完成驗證與標記。
+
+    同組可有多個視窗（Step 4 起不再拒絕「該組目前在線」），每組視窗上限 10。
+    回傳 (room, group, rejoined, is_new, was_online)。
     """
     room = rooms.get_room(code)
     if room.status == "Closed":
@@ -18,20 +22,24 @@ def join(code: str, raw_name: str, ws: WebSocket) -> tuple[Room, Group, bool, bo
     name = validate_group_name(raw_name)
     key = normalize_group_name(name)
     group = room.groups.get(key)
-    if group is not None and group.online:
-        raise err("GROUP_ONLINE")
+    if realtime.window_count(room.code, key) >= MAX_WINDOWS_PER_GROUP:
+        raise err("GROUP_WINDOWS_FULL")
     is_new = group is None
+    was_online = bool(group and group.online)
     if group is None:
         group = Group(name=name, normalized_name=key, online=True, joined_at=utcnow())
         room.groups[key] = group
     else:
         group.online = True
-    realtime.set_student(room.code, key, ws)
+    realtime.add_student(room.code, key, ws)
     rooms.touch(room)
-    return room, group, not is_new, is_new
+    return room, group, not is_new, is_new, was_online
 
 
-async def announce_join(room: Room, group: Group, is_new: bool) -> None:
+async def announce_join(room: Room, group: Group, is_new: bool, was_online: bool = False) -> None:
+    """只在「新組別」或「由離線轉在線」時通知老師；同組多出的視窗不重複通知。"""
+    if was_online and not is_new:
+        return
     if is_new:
         await realtime.broadcast_to_teachers(
             room.code,
@@ -44,12 +52,12 @@ async def announce_join(room: Room, group: Group, is_new: bool) -> None:
 
 
 async def disconnect(room: Room, group: Group, ws: WebSocket) -> None:
-    """僅當此連線仍是登記中的連線才標記離線，避免舊連線延遲關閉誤傷新連線。"""
-    if not realtime.student_is(room.code, group.normalized_name, ws):
-        return
-    realtime.remove_student(room.code, group.normalized_name)
-    group.online = False
+    """移除此視窗；僅當該組所有視窗都離開才標記離線並通知老師。"""
+    remaining = realtime.remove_student(room.code, group.normalized_name, ws)
     rooms.touch(room)
+    if remaining > 0:
+        return
+    group.online = False
     if room.status == "Open":
         await realtime.broadcast_to_teachers(
             room.code, {"type": "group_status", "name": group.name, "online": False}

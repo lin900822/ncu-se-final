@@ -54,6 +54,18 @@ class SheetSource:
 
 
 @dataclass
+class Submission:
+    """組別對某題的一次有效送出（僅追加）；時間由後端 UTC 產生，客戶端不得提供。"""
+
+    group_name: str
+    normalized_name: str
+    question_id: str
+    round: int
+    answer: str  # 非空白且 ≤ 500 字元，保存原文
+    submitted_at: datetime
+
+
+@dataclass
 class PhaseChange:
     """階段變更紀錄（僅追加）；時間為後端 UTC。"""
 
@@ -78,6 +90,9 @@ class Room:
     round: int = 0
     phase_log: list[PhaseChange] = field(default_factory=list)
     sheet: SheetSource | None = None
+    submissions: list[Submission] = field(default_factory=list)
+    # 去重索引：(round, normalized_name, question_id) -> Submission（由 submissions 推得）
+    submission_index: dict[tuple[int, str, str], Submission] = field(default_factory=dict)
     questions: list[Question] = field(default_factory=list)
 
 
@@ -103,7 +118,10 @@ _ERRORS = {
     "UNAUTHORIZED": ("無權限操作此房間", 401),
     "NAME_REQUIRED": ("請填寫組名", 400),
     "NAME_TOO_LONG": ("組名最多 20 字元", 400),
-    "GROUP_ONLINE": ("該組目前在線", 409),
+    "GROUP_WINDOWS_FULL": ("該組視窗數已達上限（10）", 409),
+    "QUESTION_NOT_FOUND": ("找不到該題", 400),
+    "ANSWER_EMPTY": ("請填寫答案", 400),
+    "ANSWER_TOO_LONG": ("答案最多 500 字元", 400),
     "JOIN_TIMEOUT": ("加入逾時，請重試", 400),
     "PHASE_LOCKED": ("目前不開放作答", 400),
     "SHEET_URL_INVALID": ("請貼上有效的 Google Sheet 連結", 400),

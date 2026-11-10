@@ -1,9 +1,11 @@
 @startuml sequence
-title 房間建立、加入、階段同步與題目表單 - 時序圖
+title 房間、階段、題目表單與答案提交 - 時序圖
 actor 老師
 actor 學生
 participant "老師端" as T
 participant "學生端" as S
+participant "同組其他視窗" as S2
+participant "其他組別" as O
 participant "後端" as B
 participant "Google Sheet" as G
 opt 老師貼 Google Sheet 連結
@@ -60,12 +62,19 @@ opt 老師結束搶答
   B -> S : phase_changed(Ended)
   S -> S : 輸入框鎖定(保留未送出文字)並隱藏題目文字
 end
-opt 學生嘗試送出(submit)
-  S -> B : submit
-  alt 階段非 Answering 或房間已結束
-    B --> S : error PHASE_LOCKED(不關閉連線)
-  else Answering
-    B -> B : 本步驟僅為閘門\n(內容與仲裁由後續步驟)
+opt 學生送出某題答案
+  S -> B : submit(題目, 答案)
+  B -> B : 檢查搶答中、答案非空且≤500\n同組同題同輪已有紀錄?(序列化判斷)
+  alt 非搶答中/答案無效
+    B --> S : error(PHASE_LOCKED/答案無效)，不產生紀錄
+  else 已送出過(連點/其他視窗先到)
+    B --> S : 已送出 + 既有答案(不新增紀錄)
+  else 第一筆
+    B -> B : 追加送出紀錄(後端UTC時間)
+    B --> S : 已送出
+    B -> S2 : 已送出 + 答案內容(唯讀)
+    B -> T : 組別+題目+答案+時間
+    B -> O : 匿名「本題已有組別送出」\n(不含組名與內容)
   end
 end
 opt 學生關閉頁面或斷線

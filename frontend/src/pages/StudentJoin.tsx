@@ -13,10 +13,6 @@ import { useReconnectingSocket } from '../hooks/useReconnectingSocket'
 
 type View = 'form' | 'joining' | 'joined' | 'closed'
 
-// 自動重新加入時遇到「該組目前在線」（舊連線尚未被判定離線）的重試設定
-const RETRY_INTERVAL_MS = 2000
-const MAX_AUTO_RETRIES = 12 // 約 24 秒，涵蓋心跳偵測異常斷線的時間
-
 export default function StudentJoin() {
   const saved = useRef(loadStudentJoin())
   const [code, setCode] = useState(saved.current?.code ?? '')
@@ -32,10 +28,12 @@ export default function StudentJoin() {
   const [questions, setQuestions] = useState<QuestionItem[]>([])
   const [values, setValues] = useState<Record<string, string>>({})
   const [texts, setTexts] = useState<Record<string, string>>({}) // 題目文字：僅搶答中才有
+  // 答案提交（Step 4）：一律以伺服器事件為準，不做樂觀更新
+  const [submitted, setSubmitted] = useState<Record<string, string>>({})
+  const [othersSubmitted, setOthersSubmitted] = useState<string[]>([])
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const lastRound = useRef(0)
   const roomCodeRef = useRef('')
-  const auto = useRef(!!saved.current) // 是否為自動重新加入
-  const retries = useRef(0)
   const activeRef = useRef(active)
   activeRef.current = active
 
@@ -49,6 +47,9 @@ export default function StudentJoin() {
     if (roomCodeRef.current) clearDraft(roomCodeRef.current)
     lastRound.current = 0
     setValues({})
+    setSubmitted({})
+    setOthersSubmitted([])
+    setErrors({})
   }, [])
 
   // 後端階段為唯一事實來源；round 增加（新一輪開始）才清空填空格與草稿，同輪重連不清空
@@ -57,6 +58,9 @@ export default function StudentJoin() {
     if (round > lastRound.current) {
       lastRound.current = round
       setValues({})
+      setSubmitted({})
+      setOthersSubmitted([])
+      setErrors({})
       if (roomCodeRef.current) clearDraft(roomCodeRef.current)
     }
   }, [])
@@ -73,6 +77,22 @@ export default function StudentJoin() {
     if (msg.type === 'phase_changed') {
       applyPhase(msg.phase as RoomPhase, msg.round as number)
       if (msg.phase !== 'Answering') setTexts({}) // 結束搶答後隱藏題目文字
+    } else if (msg.type === 'submitted') {
+      // 同組任一視窗送出（含自己）：該題變「已送出」，內容以伺服器為準
+      const qid = msg.questionId as string
+      const answer = msg.answer as string
+      setSubmitted((prev) => ({ ...prev, [qid]: answer }))
+      setValues((prev) => ({ ...prev, [qid]: answer }))
+      setErrors((prev) => {
+        const { [qid]: _removed, ...rest } = prev
+        return rest
+      })
+    } else if (msg.type === 'question_submitted') {
+      // 匿名提示：只知道「這題有組別送出」，不含組名、內容、數量
+      if ((msg.round as number) >= lastRound.current) {
+        const qid = msg.questionId as string
+        setOthersSubmitted((prev) => (prev.includes(qid) ? prev : [...prev, qid]))
+      }
     } else if (msg.type === 'question_texts') {
       setTexts((msg.texts as Record<string, string>) ?? {})
     } else if (msg.type === 'joined') {
@@ -90,11 +110,14 @@ export default function StudentJoin() {
       setQuestions((msg.questions as QuestionItem[]) ?? [])
       setTexts((msg.texts as Record<string, string>) ?? {}) // 搶答中以外一律為空
       applyPhase(msg.phase as RoomPhase, round)
+      // 伺服器還原本組本輪已送出的內容與他組匿名提示（須在 applyPhase 之後，避免被輪次清空覆蓋）
+      const mine = (msg.mySubmissions as Record<string, string>) ?? {}
+      setSubmitted(mine)
+      setValues((prev) => ({ ...prev, ...mine }))
+      setOthersSubmitted((msg.submittedByOthers as string[]) ?? [])
       setJoinedName(group.name)
       setJoinedCode(room.code)
       if (a) saveStudentJoin({ code: room.code, name: group.name })
-      auto.current = true
-      retries.current = 0
       setNotice('')
       setError('')
       setPhase('joined')
@@ -107,15 +130,13 @@ export default function StudentJoin() {
       setPhase('closed')
     } else if (msg.type === 'error') {
       const errCode = msg.code as string
-      if (errCode === 'GROUP_ONLINE' && auto.current && retries.current < MAX_AUTO_RETRIES) {
-        retries.current += 1
-        setNotice('正在重新連線…')
-        setPhase('joining')
-        setTimeout(() => setConnectKey((k) => k + 1), RETRY_INTERVAL_MS)
+      if (msg.questionId !== undefined) {
+        // 送出被拒絕（空白、過長、非搶答中…）：只顯示在該題，連線維持
+        const qid = msg.questionId as string
+        setErrors((prev) => ({ ...prev, [qid]: msg.message as string }))
         return
       }
       if (errCode === 'ROOM_CLOSED' || errCode === 'ROOM_NOT_FOUND') clearStudentJoin()
-      auto.current = false
       setNotice('')
       setActive(null)
       setError(msg.message as string)
@@ -123,13 +144,22 @@ export default function StudentJoin() {
     }
   }, [applyPhase, resetLocal])
 
-  const { status } = useReconnectingSocket({
+  const { status, send } = useReconnectingSocket({
     path: active ? '/ws/student' : null,
     onOpen,
     onMessage,
     connectKey,
     noReconnectCodes: [1008],
   })
+
+  // 送出某題：不做樂觀更新，等伺服器回 submitted 才顯示「已送出」
+  function onSubmitAnswer(id: string) {
+    setErrors((prev) => {
+      const { [id]: _removed, ...rest } = prev
+      return rest
+    })
+    send({ type: 'submit', questionId: id, answer: values[id] ?? '' })
+  }
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -138,8 +168,6 @@ export default function StudentJoin() {
       return
     }
     setError('')
-    auto.current = false
-    retries.current = 0
     resetLocal()
     setQuestions([])
     setTexts({})
@@ -151,7 +179,6 @@ export default function StudentJoin() {
 
   function onLeave() {
     clearStudentJoin()
-    auto.current = false
     resetLocal()
     setQuestions([])
     setTexts({})
@@ -184,6 +211,10 @@ export default function StudentJoin() {
             values={values}
             disabled={!unlocked}
             texts={unlocked ? texts : undefined}
+            submitted={submitted}
+            othersSubmitted={othersSubmitted}
+            errors={errors}
+            onSubmit={onSubmitAnswer}
             onChange={onChangeAnswer}
           />
         )}

@@ -5,7 +5,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..models import AppError, err, question_public, question_texts
 from ..realtime import close_safe, realtime, send_json_safe
-from ..services import groups, phase, rooms
+from ..services import groups, rooms, submissions
 
 router = APIRouter()
 
@@ -34,7 +34,7 @@ async def student_ws(ws: WebSocket):
         await _reject(ws, err("BAD_REQUEST"))
         return
     try:
-        room, group, rejoined, is_new = groups.join(
+        room, group, rejoined, is_new, was_online = groups.join(
             str(msg.get("code", "")), str(msg.get("name", "")), ws
         )
     except AppError as e:
@@ -56,9 +56,12 @@ async def student_ws(ws: WebSocket):
                 "texts": question_texts(room)
                 if room.status == "Open" and room.phase == "Answering"
                 else {},
+                # 還原本組本輪已送出的內容；他組只給匿名的題目識別碼（Step 4）
+                "mySubmissions": submissions.my_submissions(room, group),
+                "submittedByOthers": submissions.submitted_by_others(room, group),
             },
         )
-        await groups.announce_join(room, group, is_new)
+        await groups.announce_join(room, group, is_new, was_online)
         while True:
             raw = await ws.receive_text()
             rooms.touch(room)
@@ -67,14 +70,29 @@ async def student_ws(ws: WebSocket):
             except ValueError:
                 continue
             if isinstance(data, dict) and data.get("type") == "submit":
+                qid = str(data.get("questionId", ""))
                 try:
-                    phase.ensure_answering(room)
+                    sub, created = submissions.submit(room, group, qid, data.get("answer"))
                 except AppError as e:
-                    # 鎖定中的送出一律拒絕，但不關閉連線（FR-007）
+                    # 驗證失敗只回發送者且不關閉連線（FR-004、FR-003）
                     await send_json_safe(
-                        ws, {"type": "error", "code": e.code, "message": e.message}
+                        ws,
+                        {"type": "error", "code": e.code, "message": e.message, "questionId": qid},
                     )
-                # Answering：本步驟僅為閘門，內容與仲裁由 Step 3 實作
+                    continue
+                if not created:
+                    # 重複送出：只回送既有結果，不新增紀錄、不通知任何人（FR-005）
+                    await send_json_safe(ws, submissions.to_group_event(sub))
+                    continue
+                # 三種受眾、三種內容（原則 III）：
+                # 同組視窗＝答案；老師＝組別＋答案＋時間；他組＝匿名提示（只含題目識別碼與輪次）
+                await realtime.broadcast_to_group(
+                    room.code, group.normalized_name, submissions.to_group_event(sub)
+                )
+                await realtime.broadcast_to_teachers(room.code, submissions.to_teacher_event(sub))
+                await realtime.broadcast_to_other_groups(
+                    room.code, group.normalized_name, submissions.to_other_groups_event(sub)
+                )
     except WebSocketDisconnect:
         pass
     finally:

@@ -13,6 +13,14 @@ import {
 import { QuestionList } from '../components/QuestionFields'
 import { useReconnectingSocket } from '../hooks/useReconnectingSocket'
 
+interface SubmissionItem {
+  group: string
+  questionId: string
+  answer: string
+  round: number
+  submittedAt: string
+}
+
 interface GroupItem {
   name: string
   online: boolean
@@ -28,6 +36,8 @@ export default function TeacherRoom() {
   const [questions, setQuestions] = useState<QuestionItem[]>([])
   const [sheetTitle, setSheetTitle] = useState<string | null>(null)
   const [texts, setTexts] = useState<Record<string, string>>({})
+  const [round, setRound] = useState(0)
+  const [submissions, setSubmissions] = useState<SubmissionItem[]>([])
   const [revoked, setRevoked] = useState(false)
   const [error, setError] = useState('')
 
@@ -46,17 +56,34 @@ export default function TeacherRoom() {
             questions?: QuestionItem[]
             sheetTitle?: string | null
             texts?: Record<string, string>
+            round?: number
+            submissions?: SubmissionItem[]
           }
           setRoomPhase(room.phase)
           setQuestions(room.questions ?? [])
           setSheetTitle(room.sheetTitle ?? null)
           setTexts(room.texts ?? {})
+          setRound(room.round ?? 0)
+          setSubmissions(room.submissions ?? [])
         }
         break
       case 'question_texts':
         setTexts((msg.texts as Record<string, string>) ?? {})
         break
+      case 'submission': {
+        // 每筆新送出即時追加（只在老師端顯示答案內容）
+        const item: SubmissionItem = {
+          group: msg.group as string,
+          questionId: msg.questionId as string,
+          answer: msg.answer as string,
+          round: msg.round as number,
+          submittedAt: msg.submittedAt as string,
+        }
+        setSubmissions((prev) => [...prev, item])
+        break
+      }
       case 'phase_changed':
+        setRound(msg.round as number)
         setRoomPhase(msg.phase as RoomPhase)
         break
       case 'group_joined':
@@ -123,6 +150,9 @@ export default function TeacherRoom() {
   }
 
   if (!session) return null
+
+  // 只顯示目前這一輪；舊輪次的紀錄仍保留在後端
+  const currentSubmissions = submissions.filter((x) => x.round === round)
 
   if (revoked) {
     return (
@@ -194,6 +224,31 @@ export default function TeacherRoom() {
             {sheetTitle && <p className="text-sm text-slate-500">來源分頁：{sheetTitle}</p>}
             <QuestionList questions={questions} texts={texts} />
           </>
+        )}
+      </section>
+
+      <section className="space-y-2 rounded-xl bg-white p-6 shadow-sm">
+        <h2 className="text-xl font-bold">本輪送出</h2>
+        {currentSubmissions.length === 0 ? (
+          <p className="text-slate-500">尚無組別送出</p>
+        ) : (
+          <ul className="space-y-2">
+            {currentSubmissions.map((sub) => (
+              <li
+                key={`${sub.round}-${sub.group}-${sub.questionId}`}
+                className="rounded border border-slate-200 px-3 py-2 text-sm"
+              >
+                <span className="font-semibold">{sub.group}</span>
+                <span className="mx-2 text-slate-500">
+                  {questions.find((q) => q.id === sub.questionId)?.label ?? sub.questionId}
+                </span>
+                <span className="whitespace-pre-wrap">{sub.answer}</span>
+                <span className="ml-2 text-xs text-slate-400">
+                  {new Date(sub.submittedAt).toLocaleTimeString()}
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 

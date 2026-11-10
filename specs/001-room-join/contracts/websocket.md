@@ -47,7 +47,7 @@
 | ROOM_CLOSED | 房間已結束 | 該房間已結束 |
 | NAME_REQUIRED | 組名空白 | 請填寫組名 |
 | NAME_TOO_LONG | 超過 20 字元 | 組名最多 20 字元 |
-| GROUP_ONLINE | 同組名目前在線 | 該組目前在線 |
+| ~~GROUP_ONLINE~~ | 同組名目前在線 | （**Step 4 起移除**：改為允許同組多視窗，見 `specs/004-group-answer-submit/contracts/websocket.md`） |
 | JOIN_TIMEOUT | 5 秒內未送 join | 加入逾時，請重試 |
 
 加入後學生連線可能收到：
