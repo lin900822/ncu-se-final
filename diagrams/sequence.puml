@@ -1,5 +1,5 @@
 @startuml sequence
-title 房間、階段、題目表單、題組、答案提交、搶答順位與結果公布 - 時序圖
+title 房間、階段、題目表單、題組、答案提交、搶答順位、結果公布與紀錄匯出 - 時序圖
 actor 老師
 actor 學生
 participant "老師端" as T
@@ -109,6 +109,22 @@ opt 學生送出題組(如 Q3+Q4)
     B --> S : bundle_submitted(整張卡片已送出)
     B -> S2 : bundle_submitted + 各題答案(唯讀)
     B -> O : bundle_hint 匿名「本題組已有組別送出」\n(只含題組識別碼與輪次)
+  end
+end
+opt 老師匯出紀錄
+  老師 -> T : 點擊「匯出紀錄」
+  T -> B : exportRecords(老師憑證)
+  B -> B : 驗證老師憑證(房間已結束仍可,保留期內)
+  alt 房間已被清除(超過24小時保留期)
+    B --> T : 404 RECORDS_GONE 紀錄已不存在
+  else 憑證缺少/錯誤/已失效
+    B --> T : 401 拒絕(不含任何紀錄)
+  else 尚無有效送出
+    B --> T : 404 NO_RECORDS 「尚無送出紀錄可匯出」(不下載)
+  else 有紀錄
+    B -> B : 由送出紀錄推導各列\n輪次→題目順序→名次排序\n公式字元以文字呈現(唯讀,不改紀錄)
+    B --> T : CSV 檔(搶答紀錄_代碼_日期.csv)
+    T --> 老師 : 瀏覽器下載
   end
 end
 opt 學生關閉頁面或斷線

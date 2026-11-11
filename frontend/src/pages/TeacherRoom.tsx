@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
+  ApiError,
   clearTeacherSession,
   closeRoom,
   endAnswering,
+  exportRecords,
   loadTeacherSession,
   startAnswering,
   type BundleItem,
@@ -48,6 +50,7 @@ export default function TeacherRoom() {
   const [board, setBoard] = useState<Board | null>(null)
   const [revoked, setRevoked] = useState(false)
   const [error, setError] = useState('')
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     if (!session) nav('/', { replace: true })
@@ -162,9 +165,29 @@ export default function TeacherRoom() {
     }
   }
 
+  // 匯出所有輪次的作答明細 CSV；沒有紀錄時只顯示提示、不下載（Step 8）
+  async function onExport() {
+    if (!session || exporting) return
+    setError('')
+    setExporting(true)
+    try {
+      await exportRecords(session.code, session.teacherToken)
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'UNAUTHORIZED') {
+        // 憑證已被換裝置後的新憑證取代：與 WebSocket 4401 相同，視為身分失效
+        clearTeacherSession()
+        setRevoked(true)
+      } else {
+        setError((e as Error).message)
+      }
+    } finally {
+      setExporting(false)
+    }
+  }
+
   async function onClose() {
     if (!session) return
-    if (!window.confirm('確定要結束房間嗎？結束後學生將無法再加入。')) return
+    if (!window.confirm('確定要結束房間嗎？結束後學生將無法再加入；仍可匯出紀錄，直到離開本頁。')) return
     try {
       await closeRoom(session.code, session.teacherToken)
       setClosed(true)
@@ -207,6 +230,9 @@ export default function TeacherRoom() {
       {closed && (
         <div role="status" className="space-y-2 rounded bg-slate-200 p-3 text-center">
           <p className="font-semibold">房間已結束</p>
+          <p className="text-sm text-slate-600">
+            請先到下方「匯出紀錄」下載作答明細；按下「回首頁」後將無法再匯出。
+          </p>
           <button
             onClick={() => {
               clearTeacherSession()
@@ -310,6 +336,19 @@ export default function TeacherRoom() {
             ))}
           </ul>
         )}
+      </section>
+
+      {/* 搶答中、已結束、房間已結束都可匯出（不放在 closed 條件內） */}
+      <section className="space-y-2 rounded-xl bg-white p-6 shadow-sm">
+        <h2 className="text-xl font-bold">匯出紀錄</h2>
+        <p className="text-sm text-slate-500">下載所有輪次的作答明細（CSV）</p>
+        <button
+          onClick={onExport}
+          disabled={exporting}
+          className="rounded bg-slate-800 px-4 py-2 font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
+        >
+          {exporting ? '匯出中…' : '匯出紀錄'}
+        </button>
       </section>
 
       {error && (

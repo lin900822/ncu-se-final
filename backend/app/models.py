@@ -163,6 +163,8 @@ _ERRORS = {
     "SHEET_QUESTIONS_INVALID": ("題號有問題，請修正試算表", 422),
     "SHEET_TOO_MANY_QUESTIONS": ("題數超過上限（50）", 422),
     "SHEET_CHANGED": ("試算表內容已變動，請重新讀取並確認", 409),
+    "NO_RECORDS": ("尚無送出紀錄可匯出", 404),
+    "RECORDS_GONE": ("紀錄已不存在，請於活動結束後盡快匯出", 404),
     "BUNDLES_INVALID": ("題組設定有誤", 400),
     "BUNDLE_NOT_FOUND": ("找不到該題組", 400),
     "BUNDLE_INCOMPLETE": ("請填完題組內所有題目", 400),

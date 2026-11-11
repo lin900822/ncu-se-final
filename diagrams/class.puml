@@ -1,5 +1,5 @@
 @startuml class
-title 房間、階段、題目表單、題組、答案提交、搶答順位與結果公布 - 類別圖
+title 房間、階段、題目表單、題組、答案提交、搶答順位、結果公布與紀錄匯出 - 類別圖
 class Room {
   code : string
   status : Open | Closed
@@ -83,6 +83,20 @@ note right of RoundResult
   其餘組別名次與答案不公布；僅在 Ended 階段提供。
   題組各題 rank 相同，故同題組各題 winner 一致。
 end note
+class ExportRow <<derived>> {
+  round : int
+  questionLabel : string (Q1 / Q3 / Q1（2）)
+  bundleLabel : string (題組成員題號，如 Q3、Q4；未綁定為空)
+  groupName : string (公式字元開頭時補 ')
+  answer : string (原文，公式字元開頭時補 ')
+  receivedAt : datetime (UTC，後端時間，精確到秒)
+  rank : int
+}
+note right of ExportRow
+  由 Submission 推導，不另存、不可改；
+  僅老師憑證可匯出；排序=輪次→題目順序→名次；
+  不含憑證、儲存格位置、seq 等內部資訊。
+end note
 class PhaseChange <<append-only>> {
   phase : Answering | Ended
   round : int
@@ -110,6 +124,7 @@ Room "1" *-- "0..*" PhaseChange : 階段變更紀錄
 Room "1" *-- "0..*" Submission : 送出紀錄
 Group "1" -- "0..*" Submission : 提交
 Submission ..> QuestionProgress : 推得
+Submission ..> ExportRow : 每筆有效送出一列
 Submission ..> ResultItem : rank=1 推得
 RoundResult "1" *-- "0..*" ResultItem
 QuestionProgress ..> GroupLeadTally : 統計

@@ -109,6 +109,34 @@ export async function recoverRoom(recoveryCode: string): Promise<TeacherSession>
   })
 }
 
+/** 匯出紀錄：憑證只放標頭（不進網址）；取得 Blob 後以本地日期命名並觸發下載。 */
+export async function exportRecords(code: string, token: string): Promise<void> {
+  let res: Response
+  try {
+    res = await fetch(`/api/rooms/${encodeURIComponent(code)}/records.csv`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  } catch {
+    throw new ApiError('NETWORK', '無法連線到伺服器，請稍後再試')
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => null)
+    const e = data?.error
+    throw new ApiError(e?.code ?? 'UNKNOWN', e?.message ?? '發生未知錯誤', e?.details)
+  }
+  const blob = await res.blob()
+  const d = new Date()
+  const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `搶答紀錄_${code}_${ymd}.csv`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 export async function closeRoom(code: string, token: string): Promise<void> {
   await request(`/api/rooms/${encodeURIComponent(code)}/close`, {
     method: 'POST',

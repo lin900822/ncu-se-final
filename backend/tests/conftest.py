@@ -1,3 +1,5 @@
+import csv
+import io
 from pathlib import Path
 
 import pytest
@@ -90,6 +92,18 @@ def make_bundle_room(client, bundles=(("3", "4"),), start=True):
     if start:
         assert client.post(f"/api/rooms/{code}/phase/start", headers=auth(token)).status_code == 200
     return code, token, body
+
+
+def get_export(client, code, token=None, params=None):
+    """匯出紀錄：GET /api/rooms/{code}/records.csv；憑證只放標頭。"""
+    headers = auth(token) if token else {}
+    return client.get(f"/api/rooms/{code}/records.csv", headers=headers, params=params)
+
+
+def parse_csv(response) -> list[list[str]]:
+    """以 utf-8-sig 解碼並用 csv 解析（含標題列）。"""
+    text = response.content.decode("utf-8-sig")
+    return list(csv.reader(io.StringIO(text, newline="")))
 
 
 def drain(ws, n):

@@ -1,5 +1,5 @@
 @startuml component
-title 房間、階段、題目表單、題組、答案提交、搶答順位與結果公布 - 組件圖
+title 房間、階段、題目表單、題組、答案提交、搶答順位、結果公布與紀錄匯出 - 組件圖
 actor 老師
 actor 學生
 component "老師端畫面" as TUI
@@ -12,6 +12,7 @@ package "後端" {
   component "提交服務\n(階段閘門/驗證答案\n題組全有或全無\n同組同單位同輪只收第一筆\n序列化防重複，UTC時間)" as SubmitSvc
   component "順位服務\n(以搶答單位為範圍\n依後端收到先後判定名次\n同題同輪唯一不並列\n追加順位紀錄，確定後不改寫)" as RankSvc
   component "結果服務\n(結算時由各題第1名推導結果\n只公布第1名組別與答案\n每輪一次，確定後不改寫)" as ResultSvc
+  component "匯出服務\n(驗證老師憑證\n由送出紀錄推導CSV列\n全輪次/題組各題一列\n公式字元以文字呈現)" as ExportSvc
   component "階段服務\n(開始/結束搶答\n老師憑證驗證\n階段為唯一事實來源)" as PhaseSvc
   component "房間逾時排程\n(閒置2小時自動結束)" as Expiry
   component "即時廣播通道" as Realtime
@@ -41,6 +42,9 @@ PhaseSvc --> ResultSvc : 結束搶答時結算
 ResultSvc --> Realtime : 全體學生+老師:結果\n(僅第1名組別與答案)
 ResultSvc --> RankSvc : 讀取各題第1名
 TUI --> PhaseSvc : 開始/結束搶答
+TUI --> ExportSvc : 匯出紀錄(老師憑證)
+ExportSvc --> RoomSvc : 驗證老師憑證(房間已結束仍可,保留24小時)
+ExportSvc --> Store : 唯讀讀取送出紀錄(不修改)
 PhaseSvc --> RoomSvc : 驗證老師憑證/房間開放
 PhaseSvc --> Store : 追加階段紀錄
 PhaseSvc --> Realtime : 階段變更事件(不含作答內容)

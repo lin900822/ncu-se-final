@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Header
+from urllib.parse import quote
+
+from fastapi import APIRouter, Header, Response
 from pydantic import BaseModel
 
-from ..models import bundle_public, err, iso, question_public
+from ..models import AppError, bundle_public, err, iso, question_public, utcnow
 from ..services import bundles as bundles_service
-from ..services import phase, rooms, sheets
+from ..services import export, phase, rooms, sheets
 
 router = APIRouter(prefix="/api/rooms")
 
@@ -76,6 +78,34 @@ async def end_phase(code: str, authorization: str | None = Header(default=None))
     room = rooms.verify_teacher(code, _bearer(authorization))
     p, rnd, changed = await phase.end_answering(room)
     return {"phase": p, "round": rnd, "changed": changed}
+
+
+@router.get("/{code}/records.csv")
+async def export_records(code: str, authorization: str | None = Header(default=None)):
+    """匯出所有輪次的作答明細 CSV（僅老師；憑證只讀標頭，不讀網址參數）。唯讀，不更新活動時間。"""
+    try:
+        # verify_teacher 不檢查房間狀態：房間結束後在保留期（24 小時）內仍可匯出
+        room = rooms.verify_teacher(code, _bearer(authorization))
+    except AppError as e:
+        if e.code == "ROOM_NOT_FOUND":
+            # 房間已被清除（超過保留期或服務重啟）：只在此端點改為明確的「紀錄已不存在」
+            raise err("RECORDS_GONE") from None
+        raise
+    if not room.submissions:
+        raise err("NO_RECORDS")
+    body = export.render_csv(room)
+    ymd = utcnow().strftime("%Y%m%d")
+    return Response(
+        content=body.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="records_{room.code}_{ymd}.csv"; '
+                f"filename*=UTF-8''{quote(f'搶答紀錄_{room.code}_{ymd}.csv')}"
+            ),
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.get("/{code}/status")
