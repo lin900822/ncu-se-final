@@ -1,5 +1,5 @@
 """房間服務：建立、恢復、結束、活動時間。"""
-from ..models import Room, bundle_public, err, iso, question_public, question_texts, utcnow
+from ..models import Room, backfill_public, bundle_public, err, iso, question_public, question_texts, utcnow
 from ..normalize import normalize_room_code
 from ..realtime import realtime
 from ..store import store
@@ -97,6 +97,8 @@ def snapshot(room: Room) -> dict:
                 for s in room.submissions
             ],
             "reviews": [effective.review_public(r) for r in room.reviews],  # 僅老師（Step 9）
+            "backfills": [backfill_public(r) for r in room.backfills],  # 僅老師（Step 10）
+            "sheetUrl": room.sheet.url if room.sheet else None,  # 僅老師；回填後「開啟試算表」連結
             "board": ranking.build_board(room),
             "result": results.build_result(room),
         },

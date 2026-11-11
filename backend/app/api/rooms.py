@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from ..models import AppError, bundle_public, err, iso, question_public, utcnow
 from ..services import bundles as bundles_service
-from ..services import export, phase, review, rooms, sheets
+from ..services import backfill, export, phase, review, rooms, sheets
 
 router = APIRouter(prefix="/api/rooms")
 
@@ -18,6 +18,10 @@ def _bearer(authorization: str | None) -> str | None:
     if authorization and authorization.lower().startswith("bearer "):
         return authorization[7:].strip()
     return None
+
+
+class BackfillBody(BaseModel):
+    round: int
 
 
 class ReviewBody(BaseModel):
@@ -114,6 +118,20 @@ async def review_submission(
     if record:
         out["reviewedAt"] = iso(record.reviewed_at)
     return out
+
+
+@router.post("/{code}/backfill/preview")
+async def backfill_preview(code: str, body: BackfillBody, authorization: str | None = Header(default=None)):
+    """回填預覽（唯讀）：僅老師；憑證只讀標頭。"""
+    room = rooms.verify_teacher(code, _bearer(authorization))
+    return await backfill.preview(room, body.round)
+
+
+@router.post("/{code}/backfill")
+async def backfill_confirm(code: str, body: BackfillBody, authorization: str | None = Header(default=None)):
+    """確認回填：把各題有效第一名的答案寫回原試算表（全有或全無）；僅老師；憑證只讀標頭。"""
+    room = rooms.verify_teacher(code, _bearer(authorization))
+    return await backfill.execute(room, body.round)
 
 
 @router.get("/{code}/records.csv")

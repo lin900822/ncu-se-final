@@ -3,7 +3,7 @@ import hashlib
 from dataclasses import dataclass
 
 from ..config import get_sheets_config
-from ..models import Question, SheetSource, err, question_public, utcnow
+from ..models import AppError, Question, SheetSource, err, question_public, utcnow
 from ..sheets.client import SheetsClient
 from ..sheets.parser import Grid, parse_questions
 from ..sheets.url import parse_sheet_url
@@ -40,6 +40,27 @@ async def read_questions(url: str) -> ReadResult:
         fingerprint=fingerprint_of(questions),
     )
     return ReadResult(questions=questions, source=source)
+
+
+async def read_for_backfill(room) -> tuple[Grid, list[Question], str]:
+    """回填用：以唯讀範圍重新讀取房間綁定的分頁，回傳 (格線, 題目, 結構指紋)。
+
+    表頭被改壞（辨識失敗）一律視為結構變動；找不到／無權限／逾時等原樣丟出。
+    """
+    assert room.sheet is not None
+    grid, title, _sheet_id = await _fetch(room.sheet.spreadsheet_id, room.sheet.sheet_id)
+    try:
+        questions = parse_questions(grid, title)
+    except AppError as e:
+        if e.code in (
+            "SHEET_FORMAT_UNRECOGNIZED",
+            "SHEET_NO_QUESTIONS",
+            "SHEET_QUESTIONS_INVALID",
+            "SHEET_TOO_MANY_QUESTIONS",
+        ):
+            raise err("SHEET_STRUCTURE_CHANGED") from None
+        raise
+    return grid, questions, fingerprint_of(questions)
 
 
 async def preview(url: str) -> dict:

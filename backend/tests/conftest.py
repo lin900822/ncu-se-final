@@ -6,6 +6,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from app.main import app
+from app.services import backfill as backfill_service
 from app.services import sheets as sheets_service
 from app.realtime import realtime
 from app.store import store
@@ -104,6 +105,75 @@ def parse_csv(response) -> list[list[str]]:
     """以 utf-8-sig 解碼並用 csv 解析（含標題列）。"""
     text = response.content.decode("utf-8-sig")
     return list(csv.reader(io.StringIO(text, newline="")))
+
+
+class FakeSheet:
+    """測試用可讀可寫的記憶體試算表：取代對 Google 的讀取與回填寫入（不連網）。"""
+
+    def __init__(self, name="single.xlsx"):
+        self.sheet_id = 0
+        self.writes: list[list[tuple]] = []  # 每次批次寫入的 updates
+        self.fail_next = None  # 設為 AppError：下一次寫入丟出且不套用任何更新
+        self.use(name)
+
+    def use(self, name):
+        self.grid, self.title = xlsx_to_grid(FIX / name)
+
+    def snapshot(self):
+        return [list(r) for r in self.grid.rows]
+
+    def set_cell(self, row, col, text):
+        """模擬老師手動編輯某格。"""
+        while len(self.grid.rows) <= row:
+            self.grid.rows.append([])
+        line = self.grid.rows[row]
+        while len(line) <= col:
+            line.append("")
+        line[col] = text
+
+    def insert_row(self, at):
+        """在第 at 列（0 起算）前插入空列，並同步位移合併範圍（模擬老師改了試算表結構）。"""
+        self.grid.rows.insert(at, [])
+        merges = []
+        for r0, r1, c0, c1 in self.grid.merges:
+            if r0 >= at:
+                merges.append((r0 + 1, r1 + 1, c0, c1))
+            elif r1 > at:
+                merges.append((r0, r1 + 1, c0, c1))
+            else:
+                merges.append((r0, r1, c0, c1))
+        self.grid.merges = merges
+
+    async def fetch(self, spreadsheet_id, gid):
+        return self.grid, self.title, self.sheet_id
+
+    async def write_batch(self, spreadsheet_id, sheet_id, updates):
+        if self.fail_next is not None:
+            e, self.fail_next = self.fail_next, None
+            raise e
+        self.writes.append(list(updates))
+        for row, col, text in updates:  # 原子套用：None 清為空字串，其餘設為該字串
+            self.set_cell(row, col, "" if text is None else text)
+
+
+@pytest.fixture
+def fake_sheet(monkeypatch):
+    """可讀可寫的假試算表（取代 use_sheet）；回傳 FakeSheet，可 .use("group.xlsx") 切換範例檔。"""
+    fs = FakeSheet()
+    monkeypatch.setattr(sheets_service, "_fetch", fs.fetch)
+    monkeypatch.setattr(backfill_service, "_write_batch", fs.write_batch, raising=False)
+    return fs
+
+
+def post_backfill(client, code, token, round_no=None, preview=False):
+    """回填：POST /api/rooms/{code}/backfill[/preview]；憑證只放標頭。"""
+    if round_no is None:
+        from app.store import store
+
+        round_no = store.rooms[code].round if code in store.rooms else 1
+    headers = auth(token) if token else {}
+    path = f"/api/rooms/{code}/backfill" + ("/preview" if preview else "")
+    return client.post(path, headers=headers, json={"round": round_no})
 
 
 def post_review(client, code, token, unit_id, group, action, reason, round_no=None):

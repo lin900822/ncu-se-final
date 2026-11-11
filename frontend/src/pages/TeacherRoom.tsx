@@ -9,6 +9,7 @@ import {
   reviewSubmission,
   loadTeacherSession,
   startAnswering,
+  type BackfillRecordItem,
   type BundleItem,
   type QuestionItem,
   type ReviewItem,
@@ -18,6 +19,7 @@ import {
 import { QuestionList } from '../components/QuestionFields'
 import ResultBoard, { type ResultData } from '../components/ResultBoard'
 import RankingBoard, { type Board, type ReviewRequest } from '../components/RankingBoard'
+import BackfillPanel from '../components/BackfillPanel'
 import { useReconnectingSocket } from '../hooks/useReconnectingSocket'
 
 interface SubmissionItem {
@@ -54,6 +56,8 @@ export default function TeacherRoom() {
   const [error, setError] = useState('')
   const [exporting, setExporting] = useState(false)
   const [reviews, setReviews] = useState<ReviewItem[]>([])
+  const [backfills, setBackfills] = useState<BackfillRecordItem[]>([])
+  const [sheetUrl, setSheetUrl] = useState<string | null>(null)
 
   useEffect(() => {
     if (!session) nav('/', { replace: true })
@@ -76,6 +80,8 @@ export default function TeacherRoom() {
             board?: Board
             result?: ResultData | null
             reviews?: ReviewItem[]
+            backfills?: BackfillRecordItem[]
+            sheetUrl?: string | null
           }
           setRoomPhase(room.phase)
           setQuestions(room.questions ?? [])
@@ -87,6 +93,8 @@ export default function TeacherRoom() {
           setBoard(room.board ?? null)
           setResult(room.result ?? null)
           setReviews(room.reviews ?? [])
+          setBackfills(room.backfills ?? [])
+          setSheetUrl(room.sheetUrl ?? null)
         }
         break
       case 'question_texts':
@@ -109,6 +117,10 @@ export default function TeacherRoom() {
       case 'board':
         // 完整看板直接覆蓋（後端為事實來源）
         setBoard(msg as unknown as Board)
+        break
+      case 'backfill_updated':
+        // 回填紀錄（僅老師）：整份覆蓋
+        setBackfills((msg.backfills as BackfillRecordItem[]) ?? [])
         break
       case 'review_updated':
         // 審核後：整份覆蓋看板、審核紀錄與有效結果（後端為事實來源）
@@ -235,6 +247,16 @@ export default function TeacherRoom() {
       : roomPhase === 'Waiting' && round > 0
         ? '請先結束搶答再審核'
         : undefined
+
+  // 回填：需綁定試算表且搶答已結束（最新一輪）
+  const backfillDisabledReason =
+    sheetTitle === null
+      ? '此房間未綁定試算表'
+      : roomPhase === 'Answering'
+        ? '搶答結束後才能回填'
+        : roomPhase === 'Waiting'
+          ? '請先開始並結束搶答'
+          : undefined
 
   if (revoked) {
     return (
@@ -408,6 +430,23 @@ export default function TeacherRoom() {
           </ul>
         )}
       </section>
+
+      {/* 回填至 Google Sheet：不放在 closed 條件內，房間結束後（保留期內）仍可使用 */}
+      {session && (
+        <BackfillPanel
+          code={session.code}
+          token={session.teacherToken}
+          round={round}
+          canBackfill={sheetTitle !== null && roomPhase === 'Ended'}
+          disabledReason={backfillDisabledReason}
+          sheetUrl={sheetUrl}
+          records={backfills}
+          onUnauthorized={() => {
+            clearTeacherSession()
+            setRevoked(true)
+          }}
+        />
+      )}
 
       {/* 搶答中、已結束、房間已結束都可匯出（不放在 closed 條件內） */}
       <section className="space-y-2 rounded-xl bg-white p-6 shadow-sm">

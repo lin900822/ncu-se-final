@@ -115,6 +115,25 @@ class ReviewRecord:
 
 
 @dataclass
+class BackfillRecord:
+    """老師每一次「確認回填」進入寫入流程的嘗試（成功或失敗各一筆；僅追加、不修改、不刪除）。
+
+    written／cleared 含儲存格位置與答案文字，只供伺服器推導「先前由本系統寫入的格」，**不外送**；
+    對外只用 backfill_public()（格數與結果）。
+    """
+
+    round: int
+    at: datetime  # 後端 UTC
+    result: Literal["Success", "Failed"]
+    written: dict[str, str] = field(default_factory=dict)  # {作答格位址: 寫入的文字}，成功才有內容
+    cleared: list[str] = field(default_factory=list)
+    skipped_count: int = 0
+    kept_count: int = 0  # 先前寫入但已被老師改過、保留不動的格數
+    reason: str | None = None  # 失敗時的錯誤碼
+    by: str = "Teacher"
+
+
+@dataclass
 class Room:
     code: str
     created_at: datetime
@@ -142,6 +161,8 @@ class Room:
     bundle_of: dict[str, str] = field(default_factory=dict)
     # 人工審核（Step 9）：僅追加的審核紀錄；有效結果由原始名次＋審核紀錄推導，不另存
     reviews: list[ReviewRecord] = field(default_factory=list)
+    # 回填試算表（Step 10）：僅追加的回填紀錄；先前寫入的格與回填計畫皆由紀錄與現況推導
+    backfills: list[BackfillRecord] = field(default_factory=list)
 
 
 class AppError(Exception):
@@ -187,6 +208,14 @@ _ERRORS = {
     "REASON_TOO_LONG": ("理由最多 100 字元", 400),
     "UNIT_NOT_FOUND": ("找不到該題或題組", 400),
     "REVIEW_TARGET_NOT_FOUND": ("找不到該組在此題的送出", 400),
+    "BACKFILL_NOT_ALLOWED": ("目前不開放回填，請於搶答結束後回填最新一輪", 400),
+    "BACKFILL_NO_SHEET": ("此房間未綁定試算表，無法回填", 400),
+    "BACKFILL_NOTHING": ("沒有可回填的答案", 400),
+    "BACKFILL_IN_PROGRESS": ("回填進行中，請稍候", 409),
+    "SHEET_STRUCTURE_CHANGED": ("試算表已變動，請重新建立房間後再回填", 409),
+    "SHEET_NOT_EDITABLE": ("無法寫入，請將試算表共用給機器人並設為編輯者", 403),
+    "SHEET_QUOTA": ("試算表服務使用額度已滿，請稍後再試", 429),
+    "SHEET_WRITE_FAILED": ("寫入試算表失敗，未做任何變更", 502),
     "NO_RECORDS": ("尚無送出紀錄可匯出", 404),
     "RECORDS_GONE": ("紀錄已不存在，請於活動結束後盡快匯出", 404),
     "BUNDLES_INVALID": ("題組設定有誤", 400),
@@ -195,6 +224,21 @@ _ERRORS = {
     "QUESTION_IN_BUNDLE": ("此題屬於題組，請整組一起送出", 400),
     "BAD_REQUEST": ("請求格式錯誤", 400),
 }
+
+
+def backfill_public(r: BackfillRecord) -> dict:
+    """老師端顯示用的回填紀錄：只含格數與結果，**不含儲存格位置與答案內容**。"""
+    return {
+        "round": r.round,
+        "at": iso(r.at),
+        "written": len(r.written),
+        "skipped": r.skipped_count,
+        "cleared": len(r.cleared),
+        "kept": r.kept_count,
+        "result": r.result,
+        "reason": r.reason,
+        "message": _ERRORS[r.reason][0] if r.reason in _ERRORS else None,
+    }
 
 
 def err(code: str, details: dict | None = None) -> AppError:

@@ -1,5 +1,5 @@
 @startuml class
-title 房間、階段、題目表單、題組、答案提交、搶答順位、結果公布、紀錄匯出與人工審核遞補 - 類別圖
+title 房間、階段、題目表單、題組、答案提交、搶答順位、結果公布、紀錄匯出、人工審核遞補與回填試算表 - 類別圖
 class Room {
   code : string
   status : Open | Closed
@@ -122,6 +122,32 @@ note right of ExportRow
   僅老師憑證可匯出；排序=輪次→題目順序→名次；
   不含憑證、儲存格位置、seq 等內部資訊。
 end note
+class BackfillRecord <<append-only>> {
+  round : int
+  by : Teacher
+  written : map<cell, text> (成功才有；僅伺服器保存，不外送)
+  cleared : list<cell> (成功時被清空的格)
+  skippedCount : int
+  keptCount : int (先前寫入但已被老師改過，保留不動)
+  result : Success | Failed(原因)
+  at : datetime (UTC, 後端產生)
+}
+note right of BackfillRecord
+  每次回填嘗試(成功或失敗)各一筆；僅追加；僅老師可見；
+  不保存回填前的儲存格內容(復原靠試算表版本記錄)；公開格式只含格數與結果；
+  用來辨認「先前由本系統寫入」的格，供之後清空殘留答案。
+end note
+class BackfillPlan <<derived>> {
+  writes : map<cell, answer> (有效第1名的答案原文，純文字)
+  skipped : list<questionId> (無有效答案，格保持原狀)
+  clears : list<cell> (先前回填、現已無有效答案、格內容仍等於當初寫入)
+  keeps : list<cell> (先前回填但已被老師改過，不動)
+  overwrites : int (目標格原本有內容且與答案不同)
+}
+note right of BackfillPlan
+  由有效結果+作答格位置+先前回填紀錄推導；不另存；
+  只含作答格；全有或全無寫入。
+end note
 class PhaseChange <<append-only>> {
   phase : Answering | Ended
   round : int
@@ -149,6 +175,10 @@ Room "1" *-- "0..*" PhaseChange : 階段變更紀錄
 Room "1" *-- "0..*" Submission : 送出紀錄
 Group "1" -- "0..*" Submission : 提交
 Submission ..> QuestionProgress : 推得
+EffectiveResult ..> BackfillPlan : 有效第1名答案
+Question ..> BackfillPlan : 作答格位置(cell)
+BackfillPlan ..> BackfillRecord : 執行後記錄結果
+Room "1" *-- "0..*" BackfillRecord : 回填紀錄
 Submission ..> ExportRow : 每筆有效送出一列
 Submission ..> EffectiveResult : 原始名次+審核紀錄推得
 ReviewRecord ..> EffectiveResult : 駁回者略過、次順位遞補

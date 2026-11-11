@@ -46,6 +46,70 @@ export async function reviewSubmission(
   })
 }
 
+/** 回填至 Google Sheet（Step 10）：確認摘要的各類格數 */
+export interface BackfillCounts {
+  write: number
+  skip: number
+  clear: number
+  keep: number
+  overwrite?: number
+}
+
+export interface BackfillItem {
+  questionId: string
+  label: string
+  action: 'write' | 'clear' | 'keep' | 'skip'
+  overwrite: boolean
+  answer: string | null
+}
+
+export interface BackfillPreview {
+  round: number
+  sheetTitle: string
+  sheetUrl: string
+  canBackfill: boolean
+  counts: BackfillCounts
+  items: BackfillItem[]
+}
+
+/** 回填紀錄（公開格式：只含格數與結果，不含儲存格位置與答案內容） */
+export interface BackfillRecordItem {
+  round: number
+  at: string
+  written: number
+  skipped: number
+  cleared: number
+  kept: number
+  result: 'Success' | 'Failed'
+  reason: string | null
+  message: string | null
+}
+
+export interface BackfillResult {
+  round: number
+  sheetUrl: string
+  counts: BackfillCounts
+  record: BackfillRecordItem
+}
+
+/** 預覽（唯讀，不寫入）：憑證只放標頭 */
+export async function backfillPreview(code: string, token: string, round: number): Promise<BackfillPreview> {
+  return request<BackfillPreview>(`/api/rooms/${encodeURIComponent(code)}/backfill/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ round }),
+  })
+}
+
+/** 確認回填：伺服器以確認當下的結果重新計算後寫入（全有或全無） */
+export async function backfillConfirm(code: string, token: string, round: number): Promise<BackfillResult> {
+  return request<BackfillResult>(`/api/rooms/${encodeURIComponent(code)}/backfill`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ round }),
+  })
+}
+
 /** 題組：老師綁定、須一起送出的相鄰題目（不含作答內容） */
 export interface BundleItem {
   id: string
