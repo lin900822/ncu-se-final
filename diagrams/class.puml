@@ -1,5 +1,5 @@
 @startuml class
-title 房間、階段、題目表單、題組、答案提交、搶答順位、結果公布與紀錄匯出 - 類別圖
+title 房間、階段、題目表單、題組、答案提交、搶答順位、結果公布、紀錄匯出與人工審核遞補 - 類別圖
 class Room {
   code : string
   status : Open | Closed
@@ -75,14 +75,35 @@ class RoundResult <<derived>> {
 }
 class ResultItem <<derived>> {
   questionId : string
-  winnerGroup : string | null (無人搶答為 null)
+  winnerGroup : string | null (無人搶答或全被駁回為 null)
+  noValid : boolean (僅「有送出但全被駁回」時附 true；不含組名/答案/理由)
   answer : string | null
 }
 note right of RoundResult
-  結束搶答時由各題 rank=1 的送出推導，只含第1名；
+  由各搶答單位的「有效第1名」推導(原始名次最前且未被駁回)，只含第1名；
   其餘組別名次與答案不公布；僅在 Ended 階段提供。
-  題組各題 rank 相同，故同題組各題 winner 一致。
+  題組各題 rank 相同，故同題組各題 winner 一致；
+  老師駁回/恢復後重新推導並通知全班(Step 9)；全部被駁回則 winner=null。
 end note
+class ReviewRecord <<append-only>> {
+  round : int
+  unitId : string (題目id 或 題組id)
+  groupName : string
+  action : Invalid | Valid (駁回 | 恢復)
+  reason : string (必填，≤100)
+  by : Teacher
+  reviewedAt : datetime (UTC, 後端產生)
+}
+note right of ReviewRecord
+  僅 Ended 階段、最新一輪、老師憑證可新增；僅追加；
+  重複動作不產生新紀錄；題組整組一起；
+  不改動 Submission 的答案/時間/原始名次；僅老師可見。
+end note
+class EffectiveResult <<derived>> {
+  unitId : string
+  winnerGroup : string | null
+  successionRank : int (排除被駁回者後的名次)
+}
 class ExportRow <<derived>> {
   round : int
   questionLabel : string (Q1 / Q3 / Q1（2）)
@@ -90,7 +111,11 @@ class ExportRow <<derived>> {
   groupName : string (公式字元開頭時補 ')
   answer : string (原文，公式字元開頭時補 ')
   receivedAt : datetime (UTC，後端時間，精確到秒)
-  rank : int
+  rank : int (原始名次)
+  reviewStatus : 有效 | 無效
+  successionRank : int | 空 (無效者空白)
+  reviewReason : string | 空
+  reviewedAt : datetime | 空 (UTC)
 }
 note right of ExportRow
   由 Submission 推導，不另存、不可改；
@@ -125,7 +150,11 @@ Room "1" *-- "0..*" Submission : 送出紀錄
 Group "1" -- "0..*" Submission : 提交
 Submission ..> QuestionProgress : 推得
 Submission ..> ExportRow : 每筆有效送出一列
-Submission ..> ResultItem : rank=1 推得
+Submission ..> EffectiveResult : 原始名次+審核紀錄推得
+ReviewRecord ..> EffectiveResult : 駁回者略過、次順位遞補
+EffectiveResult ..> ResultItem : 有效第1名
+ReviewRecord ..> ExportRow : 審核狀態/理由/時間
+Room "1" *-- "0..*" ReviewRecord : 審核紀錄
 RoundResult "1" *-- "0..*" ResultItem
 QuestionProgress ..> GroupLeadTally : 統計
 Room "1" *-- "0..*" Question : 題目(依題號排序)

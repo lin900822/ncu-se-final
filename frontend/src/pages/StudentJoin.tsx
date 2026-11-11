@@ -23,6 +23,8 @@ export default function StudentJoin() {
   const [phase, setPhase] = useState<View>(saved.current ? 'joining' : 'form')
   const [error, setError] = useState('')
   const [result, setResult] = useState<ResultData | null>(null)
+  // 老師審核後更新結果（Step 9）：結果頁顯示「老師已更新結果」；重連、新一輪、結束房間時清除
+  const [resultUpdated, setResultUpdated] = useState(false)
   const [joinedName, setJoinedName] = useState('')
   const [joinedCode, setJoinedCode] = useState('')
   const [notice, setNotice] = useState('')
@@ -59,6 +61,7 @@ export default function StudentJoin() {
     setErrors({})
     setBundleErrors({})
     setResult(null)
+    setResultUpdated(false)
   }, [])
 
   // 後端階段為唯一事實來源；round 增加（新一輪開始）才清空填空格與草稿，同輪重連不清空
@@ -86,11 +89,15 @@ export default function StudentJoin() {
   const onMessage = useCallback((msg: Record<string, unknown>) => {
     if (msg.type === 'phase_changed') {
       applyPhase(msg.phase as RoomPhase, msg.round as number)
-      if (msg.phase === 'Answering') setResult(null) // 新一輪開始：離開結果頁
+      if (msg.phase === 'Answering') {
+        setResult(null) // 新一輪開始：離開結果頁
+        setResultUpdated(false)
+      }
       if (msg.phase !== 'Answering') setTexts({}) // 結束搶答後隱藏題目文字
     } else if (msg.type === 'round_result') {
       // 結算後公布：每題只有第一名的組別與答案
       setResult({ round: msg.round as number, results: msg.results as ResultData['results'] })
+      setResultUpdated(msg.reviewed === true)
     } else if (msg.type === 'submitted') {
       // 同組任一視窗送出（含自己）：該題變「已送出」，內容以伺服器為準
       const qid = msg.questionId as string
@@ -148,6 +155,7 @@ export default function StudentJoin() {
       setValues((prev) => ({ ...prev, ...mine }))
       setOthersSubmitted((msg.submittedByOthers as string[]) ?? [])
       setResult((msg.result as ResultData | null) ?? null) // 後端還原（重連／晚加入）
+      setResultUpdated(false)
       setJoinedName(group.name)
       setJoinedCode(room.code)
       if (a) saveStudentJoin({ code: room.code, name: group.name })
@@ -257,6 +265,16 @@ export default function StudentJoin() {
           {roomPhase === 'Answering' ? '搶答中' : roomPhase === 'Ended' ? '搶答已結束' : '等待搶答'}
           {status !== 'open' && '（重新連線中…）'}
         </p>
+        {roomPhase === 'Waiting' && (
+          <p className="rounded bg-slate-50 p-2 text-sm text-slate-600">
+            老師可審核答案；答案被判定無效時，名次由次順位組別遞補。
+          </p>
+        )}
+        {roomPhase === 'Ended' && result && resultUpdated && (
+          <p role="status" className="rounded bg-amber-50 p-2 text-sm font-semibold text-amber-800">
+            老師已更新結果
+          </p>
+        )}
         {roomPhase === 'Ended' && result && (
           <ResultBoard result={result} questions={questions} myGroup={joinedName} bundles={bundles} />
         )}

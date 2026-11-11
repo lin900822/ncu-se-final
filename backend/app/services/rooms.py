@@ -4,7 +4,7 @@ from ..normalize import normalize_room_code
 from ..realtime import realtime
 from ..store import store
 from . import bundles as bundles_service
-from . import ranking, results
+from . import effective, ranking, results
 
 
 def create_room(sheet=None, bundles=None) -> Room:
@@ -96,6 +96,7 @@ def snapshot(room: Room) -> dict:
                 }
                 for s in room.submissions
             ],
+            "reviews": [effective.review_public(r) for r in room.reviews],  # 僅老師（Step 9）
             "board": ranking.build_board(room),
             "result": results.build_result(room),
         },

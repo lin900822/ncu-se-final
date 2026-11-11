@@ -4,14 +4,19 @@
 嚴禁被學生 WebSocket 路徑引用。
 唯讀：不修改任何紀錄（僅追加）；整段同步、不得 await，因此是一致快照（題組成員必定一起出現）。
 時間為送出當下由後端產生的 UTC（原則 II）；排名直接取自送出紀錄，不重新計算。
-只可匯入 ..models，避免循環匯入。
+Step 9：另追加審核狀態、遞補後名次、審核理由、審核時間（由審核紀錄推導，仍唯讀）。
+只可匯入 ..models、bundles、effective，避免循環匯入。
 """
 import csv
 import io
 
 from ..models import Room, iso
+from . import bundles, effective
 
-COLUMNS = ["輪次", "題號", "題組", "組別", "答案", "接收時間", "排名"]
+COLUMNS = [
+    "輪次", "題號", "題組", "組別", "答案", "接收時間", "排名",
+    "審核狀態", "遞補後名次", "審核理由", "審核時間",
+]
 
 # 以這些字元開頭的文字可能被試算表當成公式（CSV injection）
 _FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r", "\n")
@@ -35,6 +40,24 @@ def build_rows(room: Room) -> list[list]:
         room.submissions,
         key=lambda s: (s.round, order.get(s.question_id, len(order)), s.rank),
     )
+    # 各輪的審核推導只算一次（舊輪也依該輪的審核紀錄）
+    rounds = {s.round for s in subs}
+    invalid = {n: effective.invalid_keys(room, n) for n in rounds}
+    state = {n: effective.review_state(room, n) for n in rounds}
+    succession = {n: effective.succession_ranks(room, n) for n in rounds}
+
+    def review_cols(s) -> list:
+        unit = bundles.unit_of(room, s.question_id)
+        key = (s.normalized_name, unit)
+        rank = succession[s.round].get((unit, s.normalized_name))
+        rec = state[s.round].get(key)
+        return [
+            "無效" if key in invalid[s.round] else "有效",
+            "" if rank is None else rank,
+            safe_cell(rec.reason) if rec else "",
+            iso(rec.reviewed_at) if rec else "",
+        ]
+
     return [
         [
             s.round,
@@ -44,6 +67,7 @@ def build_rows(room: Room) -> list[list]:
             safe_cell(s.answer),
             iso(s.submitted_at),
             s.rank,
+            *review_cols(s),
         ]
         for s in subs
     ]

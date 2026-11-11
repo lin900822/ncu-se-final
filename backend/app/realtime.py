@@ -86,7 +86,8 @@ class Realtime:
     async def broadcast_result(self, code: str, message: dict) -> None:
         """結算後公布結果給房間所有學生視窗。
 
-        僅限 `round_result`（每題僅第 1 名的組名＋答案）；嚴禁用於其他訊息（原則 III）。
+        僅限 `round_result`（結算首次公布與老師審核後的更新，每題僅有效第 1 名的組名＋答案）；
+        嚴禁用於其他訊息（原則 III）。
         """
         for (c, _name), conns in list(self.students.items()):
             if c == code:

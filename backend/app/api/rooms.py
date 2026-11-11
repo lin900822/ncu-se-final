@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from ..models import AppError, bundle_public, err, iso, question_public, utcnow
 from ..services import bundles as bundles_service
-from ..services import export, phase, rooms, sheets
+from ..services import export, phase, review, rooms, sheets
 
 router = APIRouter(prefix="/api/rooms")
 
@@ -18,6 +18,14 @@ def _bearer(authorization: str | None) -> str | None:
     if authorization and authorization.lower().startswith("bearer "):
         return authorization[7:].strip()
     return None
+
+
+class ReviewBody(BaseModel):
+    round: int
+    unitId: str
+    group: str
+    action: str
+    reason: str
 
 
 class CreateBody(BaseModel):
@@ -78,6 +86,34 @@ async def end_phase(code: str, authorization: str | None = Header(default=None))
     room = rooms.verify_teacher(code, _bearer(authorization))
     p, rnd, changed = await phase.end_answering(room)
     return {"phase": p, "round": rnd, "changed": changed}
+
+
+@router.post("/{code}/reviews")
+async def review_submission(
+    code: str, body: ReviewBody, authorization: str | None = Header(default=None)
+):
+    """老師駁回／恢復某組在某搶答單位的送出（僅搶答結束後、最新一輪；憑證只讀標頭）。"""
+    room = rooms.verify_teacher(code, _bearer(authorization))
+    record, changed = review.apply_review(
+        room,
+        round_no=body.round,
+        unit_id=body.unitId,
+        group=body.group,
+        action=body.action,
+        reason=body.reason,
+    )
+    if changed:
+        await review.publish_review(room)
+    out = {
+        "changed": changed,
+        "round": room.round,
+        "unitId": body.unitId,
+        "group": record.group_name if record else body.group,
+        "action": "invalid" if record and record.action == "Invalid" else "valid",
+    }
+    if record:
+        out["reviewedAt"] = iso(record.reviewed_at)
+    return out
 
 
 @router.get("/{code}/records.csv")

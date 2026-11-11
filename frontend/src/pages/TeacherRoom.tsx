@@ -6,16 +6,18 @@ import {
   closeRoom,
   endAnswering,
   exportRecords,
+  reviewSubmission,
   loadTeacherSession,
   startAnswering,
   type BundleItem,
   type QuestionItem,
+  type ReviewItem,
   type RoomPhase,
   type TeacherSession,
 } from '../lib/api'
 import { QuestionList } from '../components/QuestionFields'
 import ResultBoard, { type ResultData } from '../components/ResultBoard'
-import RankingBoard, { type Board } from '../components/RankingBoard'
+import RankingBoard, { type Board, type ReviewRequest } from '../components/RankingBoard'
 import { useReconnectingSocket } from '../hooks/useReconnectingSocket'
 
 interface SubmissionItem {
@@ -51,6 +53,7 @@ export default function TeacherRoom() {
   const [revoked, setRevoked] = useState(false)
   const [error, setError] = useState('')
   const [exporting, setExporting] = useState(false)
+  const [reviews, setReviews] = useState<ReviewItem[]>([])
 
   useEffect(() => {
     if (!session) nav('/', { replace: true })
@@ -72,6 +75,7 @@ export default function TeacherRoom() {
             submissions?: SubmissionItem[]
             board?: Board
             result?: ResultData | null
+            reviews?: ReviewItem[]
           }
           setRoomPhase(room.phase)
           setQuestions(room.questions ?? [])
@@ -82,6 +86,7 @@ export default function TeacherRoom() {
           setSubmissions(room.submissions ?? [])
           setBoard(room.board ?? null)
           setResult(room.result ?? null)
+          setReviews(room.reviews ?? [])
         }
         break
       case 'question_texts':
@@ -104,6 +109,12 @@ export default function TeacherRoom() {
       case 'board':
         // 完整看板直接覆蓋（後端為事實來源）
         setBoard(msg as unknown as Board)
+        break
+      case 'review_updated':
+        // 審核後：整份覆蓋看板、審核紀錄與有效結果（後端為事實來源）
+        setBoard(msg.board as Board)
+        setReviews((msg.reviews as ReviewItem[]) ?? [])
+        setResult((msg.result as ResultData | null) ?? null)
         break
       case 'round_result':
         setResult({ round: msg.round as number, results: msg.results as ResultData['results'] })
@@ -185,6 +196,21 @@ export default function TeacherRoom() {
     }
   }
 
+  // 駁回／恢復：成功後由 review_updated 更新畫面；錯誤拋回給看板顯示在該筆下方
+  async function onReview(b: ReviewRequest) {
+    if (!session) return
+    try {
+      await reviewSubmission(session.code, session.teacherToken, b)
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'UNAUTHORIZED') {
+        clearTeacherSession()
+        setRevoked(true)
+        return
+      }
+      throw e
+    }
+  }
+
   async function onClose() {
     if (!session) return
     if (!window.confirm('確定要結束房間嗎？結束後學生將無法再加入；仍可匯出紀錄，直到離開本頁。')) return
@@ -200,6 +226,15 @@ export default function TeacherRoom() {
 
   // 只顯示目前這一輪；舊輪次的紀錄仍保留在後端
   const currentSubmissions = submissions.filter((x) => x.round === round)
+
+  // 審核只在搶答結束後、針對最新一輪；其他時機只顯示說明、不顯示審核按鈕
+  const reviewHint = closed
+    ? '房間已結束，無法再審核（仍可查看與匯出）'
+    : roomPhase === 'Answering'
+      ? '搶答結束後才能審核答案'
+      : roomPhase === 'Waiting' && round > 0
+        ? '請先結束搶答再審核'
+        : undefined
 
   if (revoked) {
     return (
@@ -282,7 +317,14 @@ export default function TeacherRoom() {
         {roomPhase === 'Ended' && result && (
           <ResultBoard result={result} questions={questions} myGroup="" bundles={bundles} />
         )}
-        <RankingBoard board={board} questions={questions} />
+        <RankingBoard
+          board={board}
+          questions={questions}
+          canReview={roomPhase === 'Ended' && !closed}
+          round={round}
+          onReview={onReview}
+          reviewHint={reviewHint}
+        />
       </section>
 
       <section className="space-y-2 rounded-xl bg-white p-6 shadow-sm">
@@ -334,6 +376,35 @@ export default function TeacherRoom() {
                 </span>
               </li>
             ))}
+          </ul>
+        )}
+      </section>
+
+      {/* 審核紀錄：僅老師可見，房間結束後仍可查看（不放在 closed 條件內） */}
+      <section className="space-y-2 rounded-xl bg-white p-6 shadow-sm">
+        <h2 className="text-xl font-bold">審核紀錄</h2>
+        {reviews.length === 0 ? (
+          <p className="text-slate-500">尚無審核紀錄</p>
+        ) : (
+          <ul className="space-y-1 text-sm">
+            {reviews.map((r, i) => {
+              const bundle = bundles.find((b) => b.id === r.unitId)
+              const label = bundle
+                ? `題組：${bundle.questionIds.map((id) => questions.find((q) => q.id === id)?.label ?? id).join('、')}`
+                : (questions.find((q) => q.id === r.unitId)?.label ?? r.unitId)
+              return (
+                <li key={`${r.reviewedAt}-${i}`} className="rounded border border-slate-200 px-3 py-2">
+                  <span className="text-xs text-slate-400">
+                    第 {r.round} 輪 · {new Date(r.reviewedAt).toLocaleTimeString()}
+                  </span>{' '}
+                  <span className="font-semibold">{r.group}</span> · {label} ·{' '}
+                  <span className={r.action === 'invalid' ? 'text-red-600' : 'text-emerald-700'}>
+                    {r.action === 'invalid' ? '駁回' : '恢復有效'}
+                  </span>
+                  <span className="ml-1 whitespace-pre-wrap break-words text-slate-600">理由：{r.reason}</span>
+                </li>
+              )
+            })}
           </ul>
         )}
       </section>

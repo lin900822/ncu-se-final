@@ -22,6 +22,30 @@ export interface QuestionItem {
   label: string
 }
 
+/** 審核紀錄（僅老師可見） */
+export interface ReviewItem {
+  round: number
+  unitId: string
+  group: string
+  action: 'invalid' | 'valid'
+  reason: string
+  by: string
+  reviewedAt: string
+}
+
+/** 老師審核：駁回／恢復某組在某搶答單位的送出（憑證只放標頭） */
+export async function reviewSubmission(
+  code: string,
+  token: string,
+  body: { round: number; unitId: string; group: string; action: 'invalid' | 'valid'; reason: string },
+): Promise<{ changed: boolean }> {
+  return request<{ changed: boolean }>(`/api/rooms/${encodeURIComponent(code)}/reviews`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  })
+}
+
 /** 題組：老師綁定、須一起送出的相鄰題目（不含作答內容） */
 export interface BundleItem {
   id: string

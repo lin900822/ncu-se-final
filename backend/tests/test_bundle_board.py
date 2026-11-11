@@ -23,7 +23,9 @@ def test_board_and_result_consistent_for_bundle(client, use_sheet):
         q = {x["questionId"]: x for x in board["questions"]}
         # (a) 題組各題 leader 與名次清單相同，且帶 bundleId
         assert q["3"]["leader"] == q["4"]["leader"] == "第 1 組"
-        assert q["3"]["ranking"] == q["4"]["ranking"]
+        # 同題組各題的名次清單相同（每筆另帶各題自己的答案，所以比較時排除 answer）
+        strip = lambda rows: [{k: v for k, v in r.items() if k != "answer"} for r in rows]  # noqa: E731
+        assert strip(q["3"]["ranking"]) == strip(q["4"]["ranking"])
         assert [r["rank"] for r in q["3"]["ranking"]] == [1, 2]
         assert q["3"]["bundleId"] == q["4"]["bundleId"] == "B1"
         assert q["5"]["bundleId"] == "B2" and q["1"]["bundleId"] is None

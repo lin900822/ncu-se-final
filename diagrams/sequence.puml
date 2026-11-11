@@ -1,5 +1,5 @@
 @startuml sequence
-title 房間、階段、題目表單、題組、答案提交、搶答順位、結果公布與紀錄匯出 - 時序圖
+title 房間、階段、題目表單、題組、答案提交、搶答順位、結果公布、紀錄匯出與人工審核遞補 - 時序圖
 actor 老師
 actor 學生
 participant "老師端" as T
@@ -68,7 +68,7 @@ opt 老師結束搶答
   B -> B : 階段=Ended，記錄UTC時間
   B -> T : phase_changed(Ended)
   B -> S : phase_changed(Ended)
-  B -> B : 結算：各題/題組第1名組別+答案(無人搶答標示)\n題組內各題同一搶下組別
+  B -> B : 結算：各題/題組有效第1名組別+答案(無人搶答標示)\n題組內各題同一搶下組別
   B -> T : round_result(最終結果)
   B -> S : round_result(僅第1名組別與答案)
   B -> S2 : round_result
@@ -109,6 +109,24 @@ opt 學生送出題組(如 Q3+Q4)
     B --> S : bundle_submitted(整張卡片已送出)
     B -> S2 : bundle_submitted + 各題答案(唯讀)
     B -> O : bundle_hint 匿名「本題組已有組別送出」\n(只含題組識別碼與輪次)
+  end
+end
+opt 老師審核答案(駁回/恢復)
+  老師 -> T : 在結果面板點「駁回/無效」並填理由
+  T -> B : reviewSubmission(憑證, 單位, 組別, 動作, 理由)
+  alt 憑證無效
+    B --> T : 401 拒絕
+  else 非Ended/非最新一輪/房間已結束/理由為空
+    B --> T : 錯誤(不改變任何資料)
+  else 重複動作(已駁回再駁回/有效再恢復)
+    B --> T : 既有狀態(不新增紀錄、不重複遞補)
+  else 成功
+    B -> B : 追加審核紀錄(UTC時間,理由)\n不改動原始答案/時間/名次\n重新推導有效第1名(次順位遞補)
+    B -> T : review_updated(審核狀態+遞補後名次+審核紀錄+結果)
+    B -> S : round_result(更新後結果, reviewed=true)\n僅有效第1名組名+答案；全被駁回附noValid
+    B -> S2 : round_result(同組其他視窗)
+    B -> O : round_result(僅有效第1名組別與答案)
+    S -> S : 結果頁更新(本組搶下標示隨之更新)
   end
 end
 opt 老師匯出紀錄

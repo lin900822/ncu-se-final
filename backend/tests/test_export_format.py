@@ -49,7 +49,7 @@ def test_special_characters_roundtrip_without_extra_rows():
     assert len(rows) == 4  # 標題列 + 3 列（換行不增加列數）
     assert [r[4] for r in rows[1:]] == answers
     assert rows[1][3] == "A,B組"
-    assert all(len(r) == 7 for r in rows)
+    assert all(len(r) == 11 for r in rows)  # 七欄＋Step 9 的四個審核欄位
 
 
 def test_500_chars_answer_not_truncated():
@@ -96,8 +96,11 @@ def test_export_does_not_leak_internal_fields(client, use_sheet):
         assert room.teacher_token not in text and room.recovery_code not in text
         assert all(q.cell not in text for q in room.questions)
         rows = parse_csv(r)
-        assert rows[0] == ["輪次", "題號", "題組", "組別", "答案", "接收時間", "排名"]
-        assert all(len(row) == 7 for row in rows)  # 沒有 seq 等額外欄位
+        assert rows[0] == [
+            "輪次", "題號", "題組", "組別", "答案", "接收時間", "排名",
+            "審核狀態", "遞補後名次", "審核理由", "審核時間",
+        ]
+        assert all(len(row) == 11 for row in rows)  # 七欄＋四個審核欄位，沒有 seq 等額外欄位
     finally:
         a.__exit__(None, None, None)
 
@@ -115,3 +118,19 @@ def test_formula_guard_only_on_group_and_answer_columns():
     # 題號、題組、接收時間、排名為系統產生的固定格式，不套用前綴
     assert rows[0][1] == "Q1" and rows[0][2] == "" and rows[0][5].startswith("20")
     assert rows[0][3] == "甲" and rows[0][4] == "'=1+1"
+
+
+def test_review_columns_only_reason_gets_formula_guard():
+    """Step 9：審核狀態、遞補後名次、審核時間為系統產生的固定格式，只有「審核理由」套用公式防護。"""
+    from app.models import ReviewRecord, utcnow
+
+    room = _room([("甲", "答"), ("乙", "答2")])
+    room.phase = "Ended"
+    room.reviews.append(
+        ReviewRecord(
+            round=1, unit_id="1", group_name="甲", normalized_name="甲", action="Invalid",
+            reason="=HYPERLINK(1)", reviewed_at=utcnow(),
+        )
+    )
+    row = export.build_rows(room)[0]
+    assert row[7] == "無效" and row[8] == "" and row[9] == "'=HYPERLINK(1)" and row[10].endswith("Z")

@@ -7,7 +7,10 @@ from app.store import store
 from .conftest import get_export, join_student, make_started_room, parse_csv
 from .test_submission_privacy import flush
 
-HEADER = ["輪次", "題號", "題組", "組別", "答案", "接收時間", "排名"]
+HEADER = [
+    "輪次", "題號", "題組", "組別", "答案", "接收時間", "排名",
+    "審核狀態", "遞補後名次", "審核理由", "審核時間",  # Step 9 追加
+]
 TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 
@@ -35,7 +38,7 @@ def test_export_content_columns_and_ranks(client, use_sheet):
         assert rows[0] == HEADER
         assert len(rows) == 4  # 標題列 + 3 筆
         data = rows[1:]
-        assert [row[1:4] + row[4:5] + row[6:] for row in data] == [
+        assert [row[1:4] + row[4:5] + row[6:7] for row in data] == [
             ["Q1", "", "第 1 組", "CPU", "1"],
             ["Q1", "", "第 2 組", "cpu", "2"],
             ["Q2", "", "第 1 組", "二進位", "1"],

@@ -4,6 +4,8 @@ export interface ResultItem {
   questionId: string
   winnerGroup: string | null
   answer: string | null
+  /** 有組別送出但全部被老師駁回（Step 9）：顯示「無有效答案」以區別「無人搶答」 */
+  noValid?: boolean
 }
 
 export interface ResultData {
@@ -58,7 +60,9 @@ export default function ResultBoard({
                   )}
                 </div>
                 {winner === null ? (
-                  <p className="mt-1 text-slate-400">本題組無人搶答</p>
+                  <p className="mt-1 text-slate-400">
+                    {items.some((x) => x.noValid) ? '本題組無有效答案' : '本題組無人搶答'}
+                  </p>
                 ) : (
                   <>
                     <p className="mt-1 text-lg font-bold text-emerald-700">{winner}</p>
@@ -92,7 +96,7 @@ export default function ResultBoard({
                 )}
               </div>
               {r.winnerGroup === null ? (
-                <p className="mt-1 text-slate-400">本題無人搶答</p>
+                <p className="mt-1 text-slate-400">{r.noValid ? '本題無有效答案' : '本題無人搶答'}</p>
               ) : (
                 <>
                   <p className="mt-1 text-lg font-bold text-emerald-700">{r.winnerGroup}</p>

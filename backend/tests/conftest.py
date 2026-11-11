@@ -106,6 +106,41 @@ def parse_csv(response) -> list[list[str]]:
     return list(csv.reader(io.StringIO(text, newline="")))
 
 
+def post_review(client, code, token, unit_id, group, action, reason, round_no=None):
+    """老師審核（駁回／恢復）：POST /api/rooms/{code}/reviews；憑證只放標頭。"""
+    if round_no is None:
+        from app.store import store
+
+        round_no = store.rooms[code].round if code in store.rooms else 1
+    headers = auth(token) if token else {}
+    return client.post(
+        f"/api/rooms/{code}/reviews",
+        headers=headers,
+        json={"round": round_no, "unitId": unit_id, "group": group, "action": action, "reason": reason},
+    )
+
+
+def make_ranked_room(client, bundles=(), groups=("第 1 組", "第 2 組", "第 3 組"), end=True):
+    """建立含題目的房間並開始搶答；各組加入後由第 1 組開始依序對 Q1 送出（答案 ans-<組序>）。
+    end=True 時再結束搶答。回傳 (code, token, connections)；connections 為 [(context manager, ws)]，呼叫端負責關閉。"""
+    from .test_submission_privacy import flush
+
+    if bundles:
+        code, token, _ = make_bundle_room(client, bundles=bundles)
+    else:
+        code, token = make_started_room(client)
+    conns = []
+    for i, name in enumerate(groups, start=1):
+        cm, ws, _ = join_student(client, code, name)
+        conns.append((cm, ws))
+    for i, (_cm, ws) in enumerate(conns, start=1):
+        ws.send_json({"type": "submit", "questionId": "1", "answer": f"ans-{i}"})
+        flush(ws)
+    if end:
+        assert client.post(f"/api/rooms/{code}/phase/end", headers=auth(token)).status_code == 200
+    return code, token, conns
+
+
 def drain(ws, n):
     """依序讀取 n 則訊息。"""
     return [ws.receive_json() for _ in range(n)]

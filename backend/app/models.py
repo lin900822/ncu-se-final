@@ -98,6 +98,23 @@ class PhaseChange:
 
 
 @dataclass
+class ReviewRecord:
+    """老師對某組別在某搶答單位本輪送出的一次駁回或恢復（僅追加、不修改、不刪除）。
+
+    不改動 Submission 的答案／時間／原始名次；有效狀態由最後一筆紀錄推導（services/effective.py）。
+    """
+
+    round: int
+    unit_id: str  # 題組 id（如 B1）或題目 id
+    group_name: str
+    normalized_name: str
+    action: Literal["Invalid", "Valid"]  # 駁回 | 恢復
+    reason: str  # 必填；strip 後非空、≤ 100 字元
+    reviewed_at: datetime  # 後端 UTC
+    by: str = "Teacher"
+
+
+@dataclass
 class Room:
     code: str
     created_at: datetime
@@ -123,6 +140,8 @@ class Room:
     # 題組（Step 7）：建立房間時確定、之後不可修改；bundle_of 為 questionId -> bundleId（由 bundles 推得）
     bundles: list[QuestionBundle] = field(default_factory=list)
     bundle_of: dict[str, str] = field(default_factory=dict)
+    # 人工審核（Step 9）：僅追加的審核紀錄；有效結果由原始名次＋審核紀錄推導，不另存
+    reviews: list[ReviewRecord] = field(default_factory=list)
 
 
 class AppError(Exception):
@@ -163,6 +182,11 @@ _ERRORS = {
     "SHEET_QUESTIONS_INVALID": ("題號有問題，請修正試算表", 422),
     "SHEET_TOO_MANY_QUESTIONS": ("題數超過上限（50）", 422),
     "SHEET_CHANGED": ("試算表內容已變動，請重新讀取並確認", 409),
+    "REVIEW_NOT_ALLOWED": ("目前不開放審核，請於搶答結束後審核最新一輪", 400),
+    "REASON_REQUIRED": ("請填寫理由", 400),
+    "REASON_TOO_LONG": ("理由最多 100 字元", 400),
+    "UNIT_NOT_FOUND": ("找不到該題或題組", 400),
+    "REVIEW_TARGET_NOT_FOUND": ("找不到該組在此題的送出", 400),
     "NO_RECORDS": ("尚無送出紀錄可匯出", 404),
     "RECORDS_GONE": ("紀錄已不存在，請於活動結束後盡快匯出", 404),
     "BUNDLES_INVALID": ("題組設定有誤", 400),
