@@ -1,5 +1,5 @@
 @startuml class
-title 房間、階段、題目表單、題組、答案提交、搶答順位、結果公布、紀錄匯出、人工審核遞補與回填試算表 - 類別圖
+title 房間、階段、題目表單、題組、答案提交、搶答順位、結果公布、紀錄匯出、人工審核遞補、回填試算表與公平機制 - 類別圖
 class Room {
   code : string
   status : Open | Closed
@@ -99,11 +99,25 @@ note right of ReviewRecord
   重複動作不產生新紀錄；題組整組一起；
   不改動 Submission 的答案/時間/原始名次；僅老師可見。
 end note
+class FairnessRule {
+  winCap : int | null (每組一輪最多搶得幾題；null=不限)
+  cooldownSeconds : int (0=不套用；0..600)
+}
+note right of FairnessRule
+  建立房間時設定、之後固定(憲章IV：進行中不得更動)；
+  學生在等待搶答階段即可看到規則；無題目的房間不提供。
+end note
 class EffectiveResult <<derived>> {
   unitId : string
   winnerGroup : string | null
   successionRank : int (排除被駁回者後的名次)
+  status : Won | Yielded(已達上限/冷卻中) | Invalid | Behind | Kept(保留)
 }
+note right of EffectiveResult
+  依後端處理序逐筆判定：未被駁回、已取得題數<上限、距上次取得≥冷卻 才有資格；
+  不符資格者讓位給原始名次下一順位；全員不符資格則名次最前者「保留」；
+  題組取得計N題；每輪重算；確定性可重現；不改動任何 Submission。
+end note
 class ExportRow <<derived>> {
   round : int
   questionLabel : string (Q1 / Q3 / Q1（2）)
@@ -116,6 +130,8 @@ class ExportRow <<derived>> {
   successionRank : int | 空 (無效者空白)
   reviewReason : string | 空
   reviewedAt : datetime | 空 (UTC)
+  winStatus : 獲勝 | 未獲勝 (Won/Kept=獲勝)
+  lossReason : 被駁回 | 已達上限 | 冷卻中 | 名次落後 | 空 (獲勝者空白)
 }
 note right of ExportRow
   由 Submission 推導，不另存、不可改；
@@ -185,6 +201,8 @@ ReviewRecord ..> EffectiveResult : 駁回者略過、次順位遞補
 EffectiveResult ..> ResultItem : 有效第1名
 ReviewRecord ..> ExportRow : 審核狀態/理由/時間
 Room "1" *-- "0..*" ReviewRecord : 審核紀錄
+Room "1" o-- "0..1" FairnessRule : 公平規則(建立後固定)
+FairnessRule ..> EffectiveResult : 上限/冷卻讓位
 RoundResult "1" *-- "0..*" ResultItem
 QuestionProgress ..> GroupLeadTally : 統計
 Room "1" *-- "0..*" Question : 題目(依題號排序)

@@ -4,7 +4,7 @@ import re
 from .conftest import auth, get_export, make_ranked_room, parse_csv, post_review
 from .test_submission_privacy import flush
 
-HEADER = ["輪次", "題號", "題組", "組別", "答案", "接收時間", "排名", "審核狀態", "遞補後名次", "審核理由", "審核時間"]
+HEADER = ["輪次", "題號", "題組", "組別", "答案", "接收時間", "排名", "審核狀態", "遞補後名次", "審核理由", "審核時間", "獲勝狀態", "未獲勝原因"]
 TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 UNIT = "1"
 
@@ -23,7 +23,7 @@ def test_header_has_eleven_columns_and_unreviewed_rows_are_valid(client, use_she
     code, token, conns = make_ranked_room(client)
     try:
         rows, by = _export(client, code, token)
-        assert rows[0] == HEADER and all(len(r) == 11 for r in rows)
+        assert rows[0] == HEADER and all(len(r) == 13 for r in rows)
         for g, expected_rank in (("第 1 組", "1"), ("第 2 組", "2"), ("第 3 組", "3")):
             r = by[g]
             assert (r[6], r[7], r[8], r[9], r[10]) == (expected_rank, "有效", expected_rank, "", "")

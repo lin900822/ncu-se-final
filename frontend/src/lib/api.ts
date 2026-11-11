@@ -22,6 +22,12 @@ export interface QuestionItem {
   label: string
 }
 
+/** 公平規則（Step 11）：建立房間時確定、之後不可修改；null 表示不限制 */
+export interface FairnessRule {
+  winCap: number | null
+  cooldownSeconds: number
+}
+
 /** 審核紀錄（僅老師可見） */
 export interface ReviewItem {
   round: number
@@ -150,7 +156,8 @@ export async function createRoom(opts?: {
   sheetUrl: string
   fingerprint: string
   bundles?: string[][]
-}): Promise<TeacherSession & { bundles?: BundleItem[] }> {
+  fairness?: { winCap?: number | null; cooldownSeconds?: number }
+}): Promise<TeacherSession & { bundles?: BundleItem[]; fairness?: FairnessRule | null }> {
   return request<TeacherSession>('/api/rooms', {
     method: 'POST',
     ...(opts
@@ -174,6 +181,16 @@ export function describeError(e: unknown): string {
     if (d.invalidSubs?.length) parts.push(`小題編號不連續的題號：${d.invalidSubs.join('、')}`)
     if (d.empty?.length) parts.push(`沒有作答格的題號：${d.empty.join('、')}`)
     return `${e.message}（${parts.join('；')}）`
+  }
+  if (e instanceof ApiError && e.code === 'FAIRNESS_INVALID' && e.details) {
+    const reasons: Record<string, string> = {
+      WIN_CAP_RANGE: '每組上限須為 1 到題目數的整數',
+      COOLDOWN_RANGE: '冷卻秒數須為 0 到 600 的整數',
+      TYPE: '公平規則欄位格式錯誤',
+      NO_QUESTIONS: '沒有題目時不能設定公平規則',
+    }
+    const reason = reasons[e.details.reason as string]
+    return reason ? `${e.message}：${reason}` : e.message
   }
   if (e instanceof ApiError && e.code === 'BUNDLES_INVALID' && e.details) {
     const reasons: Record<string, string> = {

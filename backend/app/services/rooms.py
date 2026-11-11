@@ -1,5 +1,16 @@
 """房間服務：建立、恢復、結束、活動時間。"""
-from ..models import Room, backfill_public, bundle_public, err, iso, question_public, question_texts, utcnow
+from ..models import (
+    FairnessRule,
+    Room,
+    backfill_public,
+    bundle_public,
+    err,
+    fairness_public,
+    iso,
+    question_public,
+    question_texts,
+    utcnow,
+)
 from ..normalize import normalize_room_code
 from ..realtime import realtime
 from ..store import store
@@ -7,7 +18,7 @@ from . import bundles as bundles_service
 from . import effective, ranking, results
 
 
-def create_room(sheet=None, bundles=None) -> Room:
+def create_room(sheet=None, bundles=None, fairness=None) -> Room:
     now = utcnow()
     code = store.generate_room_code()
     room = Room(
@@ -23,6 +34,8 @@ def create_room(sheet=None, bundles=None) -> Room:
         # 題組隨房間建立確定，之後不可修改（Step 7）
         room.bundles = list(bundles or [])
         room.bundle_of = bundles_service.index_bundles(room.bundles)
+        # 公平規則（Step 11）同樣隨房間確定，之後不可修改
+        room.fairness = fairness or FairnessRule()
     store.rooms[code] = room
     store.recovery_index[room.recovery_code] = code
     return room
@@ -98,6 +111,7 @@ def snapshot(room: Room) -> dict:
             ],
             "reviews": [effective.review_public(r) for r in room.reviews],  # 僅老師（Step 9）
             "backfills": [backfill_public(r) for r in room.backfills],  # 僅老師（Step 10）
+            "fairness": fairness_public(room.fairness),  # 規則本身（Step 11）
             "sheetUrl": room.sheet.url if room.sheet else None,  # 僅老師；回填後「開啟試算表」連結
             "board": ranking.build_board(room),
             "result": results.build_result(room),

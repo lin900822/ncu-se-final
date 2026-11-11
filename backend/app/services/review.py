@@ -59,8 +59,10 @@ def apply_review(
     return record, True
 
 
-async def publish_review(room: Room) -> None:
-    """審核成功後廣播：老師收到完整看板／審核紀錄／有效結果；全體學生只收到更新後的有效第一名。"""
+async def publish_review(room: Room, changed_units: list[str] | None = None) -> None:
+    """審核成功後廣播：老師收到完整看板／審核紀錄／有效結果；全體學生只收到更新後的有效第一名。
+
+    changed_units（Step 11）：因公平規則連動而改變獲勝者的其他單位（只送老師，不送學生）。"""
     result = results.build_result(room)
     await realtime.broadcast_to_teachers(
         room.code,
@@ -70,6 +72,7 @@ async def publish_review(room: Room) -> None:
             "board": ranking.build_board(room),
             "reviews": [effective.review_public(r) for r in room.reviews],
             "result": result,
+            "changedUnits": list(changed_units or []),
         },
     )
     # 學生：沿用結果公布的專用通道，內容只有各題有效第一名的組名＋答案（不含被駁回者、理由、名次）

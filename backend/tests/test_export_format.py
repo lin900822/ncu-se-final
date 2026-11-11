@@ -49,7 +49,7 @@ def test_special_characters_roundtrip_without_extra_rows():
     assert len(rows) == 4  # 標題列 + 3 列（換行不增加列數）
     assert [r[4] for r in rows[1:]] == answers
     assert rows[1][3] == "A,B組"
-    assert all(len(r) == 11 for r in rows)  # 七欄＋Step 9 的四個審核欄位
+    assert all(len(r) == 13 for r in rows)  # 七欄＋Step 9 四個審核欄位＋Step 11 兩個公平欄位
 
 
 def test_500_chars_answer_not_truncated():
@@ -99,8 +99,9 @@ def test_export_does_not_leak_internal_fields(client, use_sheet):
         assert rows[0] == [
             "輪次", "題號", "題組", "組別", "答案", "接收時間", "排名",
             "審核狀態", "遞補後名次", "審核理由", "審核時間",
+            "獲勝狀態", "未獲勝原因",
         ]
-        assert all(len(row) == 11 for row in rows)  # 七欄＋四個審核欄位，沒有 seq 等額外欄位
+        assert all(len(row) == 13 for row in rows)  # 七欄＋四個審核欄位＋兩個公平欄位，沒有 seq 等額外欄位
     finally:
         a.__exit__(None, None, None)
 

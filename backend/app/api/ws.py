@@ -3,7 +3,7 @@ import json
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from ..models import AppError, bundle_public, err, question_public, question_texts
+from ..models import AppError, bundle_public, err, fairness_public, question_public, question_texts
 from ..realtime import close_safe, realtime, send_json_safe
 from ..services import groups, ranking, results, rooms, submissions
 
@@ -83,6 +83,8 @@ async def student_ws(ws: WebSocket):
                 "questions": [question_public(q) for q in room.questions],
                 # 題組設定（不含作答內容；Step 7）
                 "bundles": [bundle_public(b) for b in room.bundles],
+                # 公平規則本身（公開，Step 11）；只含上限與冷卻兩個數字，不含任何分配資訊
+                "fairness": fairness_public(room.fairness),
                 # 題目文字只在搶答中才給學生（FR-014）；其餘階段（含重連）一律為空
                 "texts": question_texts(room)
                 if room.status == "Open" and room.phase == "Answering"

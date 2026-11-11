@@ -1,5 +1,6 @@
 import csv
 import io
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,7 @@ from starlette.testclient import TestClient
 
 from app.main import app
 from app.services import backfill as backfill_service
+from app.services import submissions as submissions_service
 from app.services import sheets as sheets_service
 from app.realtime import realtime
 from app.store import store
@@ -174,6 +176,72 @@ def post_backfill(client, code, token, round_no=None, preview=False):
     headers = auth(token) if token else {}
     path = f"/api/rooms/{code}/backfill" + ("/preview" if preview else "")
     return client.post(path, headers=headers, json={"round": round_no})
+
+
+class Clock:
+    """測試用可控的後端時鐘：fake_clock.set(秒) 讓之後的送出以「基準時間＋秒」作為 submitted_at。"""
+
+    BASE = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    def __init__(self):
+        self.now = self.BASE
+
+    def set(self, seconds: float):
+        self.now = self.BASE + timedelta(seconds=seconds)
+
+
+@pytest.fixture
+def fake_clock(monkeypatch):
+    """取代 submissions.utcnow，讓測試精確控制每筆送出的後端時間（驗證冷卻與時間來源）。"""
+    clock = Clock()
+    monkeypatch.setattr(submissions_service, "utcnow", lambda: clock.now)
+    return clock
+
+
+def make_fair_room(
+    client, win_cap=None, cooldown=0, bundles=(), groups=("第 1 組", "第 2 組", "第 3 組"), start=True
+):
+    """建立含題目（單題範例 Q1～Q6）並帶公平規則的房間，各組加入；回傳 (code, token, conns)。
+    conns 為 {組名: (context manager, ws)}，呼叫端以 close_all(conns) 關閉。"""
+    p = client.post("/api/sheets/preview", json={"url": SHEET_URL}).json()
+    body = {
+        "sheetUrl": SHEET_URL,
+        "fingerprint": p["fingerprint"],
+        "bundles": [list(b) for b in bundles],
+        "fairness": {"winCap": win_cap, "cooldownSeconds": cooldown},
+    }
+    r = client.post("/api/rooms", json=body)
+    assert r.status_code == 201, r.json()
+    code, token = r.json()["code"], r.json()["teacherToken"]
+    if start:
+        assert client.post(f"/api/rooms/{code}/phase/start", headers=auth(token)).status_code == 200
+    conns = {}
+    for name in groups:
+        cm, ws, _ = join_student(client, code, name)
+        conns[name] = (cm, ws)
+    return code, token, conns
+
+
+def claim(conns, group, qid, answer):
+    """該組對單題送出答案並等伺服器處理完（flush），讓測試精確控制送出先後。"""
+    from .test_submission_privacy import flush
+
+    ws = conns[group][1]
+    ws.send_json({"type": "submit", "questionId": qid, "answer": answer})
+    return flush(ws)
+
+
+def claim_bundle(conns, group, bundle_id, answers):
+    from .test_submission_privacy import flush
+
+    ws = conns[group][1]
+    ws.send_json({"type": "submit_bundle", "bundleId": bundle_id, "answers": answers})
+    return flush(ws)
+
+
+def close_all(conns):
+    for cm, _ws in conns.values():
+        cm.__exit__(None, None, None)
 
 
 def post_review(client, code, token, unit_id, group, action, reason, round_no=None):

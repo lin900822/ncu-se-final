@@ -1,5 +1,5 @@
 @startuml component
-title 房間、階段、題目表單、題組、答案提交、搶答順位、結果公布、紀錄匯出、人工審核遞補與回填試算表 - 組件圖
+title 房間、階段、題目表單、題組、答案提交、搶答順位、結果公布、紀錄匯出、人工審核遞補、回填試算表與公平機制 - 組件圖
 actor 老師
 actor 學生
 component "老師端畫面" as TUI
@@ -15,6 +15,7 @@ package "後端" {
   component "匯出服務\n(驗證老師憑證\n由送出紀錄推導CSV列\n全輪次/題組各題一列\n公式字元以文字呈現)" as ExportSvc
   component "審核服務\n(驗證老師憑證/僅Ended最新一輪\n追加審核紀錄(駁回/恢復,必填理由)\n重複動作不重複記錄\n由原始名次+審核紀錄推導有效結果)" as ReviewSvc
   component "回填服務\n(驗證老師憑證/僅Ended/房間有試算表\n再驗證結構指紋(不符拒絕)\n產生回填計畫:寫入/略過/清空\n純文字原樣寫入,全有或全無\n追加回填紀錄)" as BackfillSvc
+  component "公平規則\n(每組獲勝上限/冷卻秒數)\n依處理序分配首選資格\n達上限或冷卻中讓位,全員不符則保留\n確定性可重現,不改動送出)" as FairSvc
   component "階段服務\n(開始/結束搶答\n老師憑證驗證\n階段為唯一事實來源)" as PhaseSvc
   component "房間逾時排程\n(閒置2小時自動結束)" as Expiry
   component "即時廣播通道" as Realtime
@@ -48,6 +49,11 @@ TUI --> ReviewSvc : 駁回/恢復(老師憑證+理由)
 ReviewSvc --> RoomSvc : 驗證老師憑證/階段
 ReviewSvc --> Store : 追加審核紀錄(僅追加)
 ReviewSvc --> ResultSvc : 重新推導結果
+ReviewSvc --> FairSvc : 套用上限/冷卻(讓位/保留)
+FairSvc --> Store : 讀取送出與審核紀錄(推導,不另存)
+RoomSvc --> FairSvc : 提供房間的公平規則(建立後固定)
+TUI --> RoomSvc : 建立房間時設定上限/冷卻(選填)
+FairSvc --> Realtime : 老師:各組取得題數/各筆狀態\n學生:僅公開規則文字,結算前無分配資訊
 ReviewSvc --> Realtime : 老師:審核狀態+結果\n全體學生:更新後結果(不含被駁回者與理由)
 ExportSvc --> ReviewSvc : 讀取審核狀態(匯出追加欄位)
 TUI --> PhaseSvc : 開始/結束搶答

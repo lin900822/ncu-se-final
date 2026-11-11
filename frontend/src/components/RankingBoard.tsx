@@ -14,7 +14,11 @@ export interface BoardRank {
   successionRank: number | null
   /** 最近一次審核理由；未審核為 null */
   reason: string | null
+  /** 公平規則下的結果（Step 11）：取得／保留／名次落後／已駁回／讓位（已達上限或冷卻中） */
+  outcome?: Outcome
 }
+
+export type Outcome = 'Won' | 'Kept' | 'Behind' | 'Invalid' | 'YieldedCap' | 'YieldedCooldown'
 
 export interface BoardQuestion {
   questionId: string
@@ -30,6 +34,16 @@ export interface Board {
   round: number
   questions: BoardQuestion[]
   leadTally: { group: string; leadCount: number }[]
+  /** 公平規則（Step 11）；沒有規則為 null */
+  fairness?: { winCap: number | null; cooldownSeconds: number } | null
+}
+
+const OUTCOME_LABEL: Partial<Record<Outcome, { text: string; cls: string }>> = {
+  Won: { text: '取得', cls: 'bg-emerald-100 text-emerald-700' },
+  Kept: { text: '保留（無其他符合資格者）', cls: 'bg-amber-100 text-amber-800 ring-1 ring-amber-400' },
+  YieldedCap: { text: '讓位（已達上限）', cls: 'bg-orange-100 text-orange-700' },
+  YieldedCooldown: { text: '讓位（冷卻中）', cls: 'bg-orange-100 text-orange-700' },
+  Behind: { text: '名次落後', cls: 'bg-slate-100 text-slate-500' },
 }
 
 export interface ReviewRequest {
@@ -49,10 +63,12 @@ interface Props {
   onReview?: (r: ReviewRequest) => Promise<void>
   /** 無法審核時的說明（例如「搶答結束後才能審核答案」） */
   reviewHint?: string
+  /** 審核連動改變獲勝者的其他單位（Step 11）；非空時顯示提示 */
+  changedUnits?: string[]
 }
 
 /** 老師端進度板與審核面板：每個搶答單位的名次清單、有效第一名、各組領先題數（僅老師可見）。 */
-export default function RankingBoard({ board, questions, canReview, round, onReview, reviewHint }: Props) {
+export default function RankingBoard({ board, questions, canReview, round, onReview, reviewHint, changedUnits }: Props) {
   const [open, setOpen] = useState<{ key: string; action: 'invalid' | 'valid' } | null>(null)
   const [busy, setBusy] = useState(false)
   const [formError, setFormError] = useState('')
@@ -93,6 +109,25 @@ export default function RankingBoard({ board, questions, canReview, round, onRev
   return (
     <div className="space-y-4">
       {reviewHint && <p className="text-sm text-slate-500">{reviewHint}</p>}
+      {board.fairness && (
+        <p className="text-sm text-slate-600">
+          公平規則：
+          {board.fairness.winCap !== null && `每組最多搶得 ${board.fairness.winCap} 題`}
+          {board.fairness.winCap !== null && board.fairness.cooldownSeconds > 0 && '・'}
+          {board.fairness.cooldownSeconds > 0 && `搶得後冷卻 ${board.fairness.cooldownSeconds} 秒`}
+        </p>
+      )}
+      {changedUnits && changedUnits.length > 0 && (
+        <p role="status" className="rounded bg-amber-50 p-2 text-sm text-amber-800">
+          此次審核連動影響：
+          {changedUnits
+            .map((u) => {
+              const bundle = board.questions.filter((x) => x.bundleId === u)
+              return bundle.length > 0 ? `題組：${bundle.map((x) => labelOf(x.questionId)).join('、')}` : labelOf(u)
+            })
+            .join('、')}
+        </p>
+      )}
       <div className="rounded bg-indigo-50 p-3 text-sm">
         <span className="font-semibold">各組領先題數：</span>
         {board.leadTally.length === 0 ? (
@@ -100,7 +135,16 @@ export default function RankingBoard({ board, questions, canReview, round, onRev
         ) : (
           board.leadTally.map((t) => (
             <span key={t.group} className="mr-3 inline-block">
-              {t.group} <span className="font-bold">{t.leadCount}</span>
+              {t.group}{' '}
+              <span
+                className={`font-bold ${
+                  board.fairness?.winCap != null && t.leadCount >= board.fairness.winCap
+                    ? 'rounded bg-orange-100 px-1 text-orange-700'
+                    : ''
+                }`}
+              >
+                {board.fairness?.winCap != null ? `${t.leadCount}/${board.fairness.winCap}` : t.leadCount}
+              </span>
             </span>
           ))
         )}
@@ -138,7 +182,13 @@ export default function RankingBoard({ board, questions, canReview, round, onRev
                       <span className="text-xs text-slate-400">{new Date(r.submittedAt).toLocaleTimeString()}</span>
                       {invalid ? (
                         <span className="rounded bg-red-100 px-1.5 text-xs font-semibold text-red-700">已駁回</span>
-                      ) : (
+                      ) : null}
+                      {!invalid && r.outcome && OUTCOME_LABEL[r.outcome] && (
+                        <span className={`rounded px-1.5 text-xs font-semibold ${OUTCOME_LABEL[r.outcome]!.cls}`}>
+                          {OUTCOME_LABEL[r.outcome]!.text}
+                        </span>
+                      )}
+                      {!invalid && (
                         r.successionRank !== null &&
                         r.successionRank !== r.rank && (
                           <span className="rounded bg-emerald-100 px-1.5 text-xs font-semibold text-emerald-700">

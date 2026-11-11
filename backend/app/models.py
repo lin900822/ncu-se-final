@@ -134,6 +134,25 @@ class BackfillRecord:
 
 
 @dataclass
+class FairnessRule:
+    """公平規則（Step 11）：建立房間時確定、之後不可修改；無題目的房間只能是預設值。
+
+    win_cap：每組在一輪中最多搶得幾題（None＝不限制）；
+    cooldown_seconds：組別每次取得題目後的冷卻秒數（0＝不套用）。
+    """
+
+    win_cap: int | None = None
+    cooldown_seconds: int = 0
+
+
+def fairness_public(f: "FairnessRule") -> dict | None:
+    """規則本身可給所有學生（不含任何作答內容）；預設（不限制）回傳 None。"""
+    if f.win_cap is None and f.cooldown_seconds == 0:
+        return None
+    return {"winCap": f.win_cap, "cooldownSeconds": f.cooldown_seconds}
+
+
+@dataclass
 class Room:
     code: str
     created_at: datetime
@@ -163,6 +182,8 @@ class Room:
     reviews: list[ReviewRecord] = field(default_factory=list)
     # 回填試算表（Step 10）：僅追加的回填紀錄；先前寫入的格與回填計畫皆由紀錄與現況推導
     backfills: list[BackfillRecord] = field(default_factory=list)
+    # 公平規則（Step 11）：建立房間時確定，之後不可修改
+    fairness: FairnessRule = field(default_factory=FairnessRule)
 
 
 class AppError(Exception):
@@ -208,6 +229,7 @@ _ERRORS = {
     "REASON_TOO_LONG": ("理由最多 100 字元", 400),
     "UNIT_NOT_FOUND": ("找不到該題或題組", 400),
     "REVIEW_TARGET_NOT_FOUND": ("找不到該組在此題的送出", 400),
+    "FAIRNESS_INVALID": ("公平規則設定有誤", 400),
     "BACKFILL_NOT_ALLOWED": ("目前不開放回填，請於搶答結束後回填最新一輪", 400),
     "BACKFILL_NO_SHEET": ("此房間未綁定試算表，無法回填", 400),
     "BACKFILL_NOTHING": ("沒有可回填的答案", 400),

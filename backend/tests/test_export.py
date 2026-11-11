@@ -10,6 +10,7 @@ from .test_submission_privacy import flush
 HEADER = [
     "輪次", "題號", "題組", "組別", "答案", "接收時間", "排名",
     "審核狀態", "遞補後名次", "審核理由", "審核時間",  # Step 9 追加
+    "獲勝狀態", "未獲勝原因",  # Step 11 追加
 ]
 TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 

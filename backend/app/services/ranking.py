@@ -3,8 +3,10 @@
 僅供老師連線；嚴禁送往學生連線（原則 III）。名次本身由 submissions.submit()
 於送出的同一同步區段內賦予（原始名次永不改寫），此處只負責整理成看板；
 每筆另帶審核狀態與遞補後名次（Step 9），leader／leadTally 取「有效第一名」。
+Step 11：leader／leadTally 為公平規則（獲勝上限、冷卻）讓位後的結果（題組 N 題計 N），
+每筆另帶 outcome，頂層帶 fairness（規則；無規則為 None）。
 """
-from ..models import Room, iso
+from ..models import Room, fairness_public, iso
 from . import bundles, effective
 
 
@@ -18,7 +20,8 @@ def build_board(room: Room) -> dict:
     invalid = effective.invalid_keys(room, round_no)
     state = effective.review_state(room, round_no)
     succession = effective.succession_ranks(room, round_no)
-    winners = effective.effective_winners(room, round_no)
+    allocation = effective.allocate(room, round_no)  # 含公平規則（上限／冷卻）的首選資格分配
+    winners = allocation.winners
 
     questions = []
     tally: dict[str, int] = {}
@@ -42,6 +45,8 @@ def build_board(room: Room) -> dict:
                     "status": "Invalid" if key in invalid else "Valid",
                     "successionRank": succession.get((unit, s.normalized_name)),
                     "reason": last.reason if last else None,
+                    # Step 11：本筆在公平規則下的結果（Won／Kept／Behind／Invalid／YieldedCap／YieldedCooldown）
+                    "outcome": allocation.status.get((unit, s.normalized_name), "Won"),
                 }
             )
         questions.append(
@@ -57,4 +62,10 @@ def build_board(room: Room) -> dict:
         {"group": g, "leadCount": n}
         for g, n in sorted(tally.items(), key=lambda kv: (-kv[1], kv[0]))
     ]
-    return {"type": "board", "round": round_no, "questions": questions, "leadTally": lead_tally}
+    return {
+        "type": "board",
+        "round": round_no,
+        "fairness": fairness_public(room.fairness),  # 無規則為 None
+        "questions": questions,
+        "leadTally": lead_tally,
+    }

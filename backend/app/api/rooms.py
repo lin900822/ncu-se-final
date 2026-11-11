@@ -1,11 +1,13 @@
+from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Header, Response
 from pydantic import BaseModel
 
-from ..models import AppError, bundle_public, err, iso, question_public, utcnow
+from ..models import AppError, bundle_public, err, fairness_public, iso, question_public, utcnow
 from ..services import bundles as bundles_service
-from ..services import backfill, export, phase, review, rooms, sheets
+from ..services import fairness as fairness_service
+from ..services import backfill, effective, export, phase, review, rooms, sheets
 
 router = APIRouter(prefix="/api/rooms")
 
@@ -36,12 +38,14 @@ class CreateBody(BaseModel):
     sheetUrl: str | None = None
     fingerprint: str | None = None
     bundles: list[list[str]] | None = None  # 題組：每個內層為相鄰題目的 questionId（Step 7）
+    fairness: Any = None  # 公平規則（Step 11）：{winCap, cooldownSeconds}；型別由 validate_fairness 檢查
 
 
 @router.post("", status_code=201)
 async def create_room(body: CreateBody | None = None):
     sheet = None
     bundles = []
+    fairness = None
     if body and (body.sheetUrl or body.fingerprint):
         if not (body.sheetUrl and body.fingerprint):
             raise err("BAD_REQUEST")
@@ -51,9 +55,13 @@ async def create_room(body: CreateBody | None = None):
             raise err("SHEET_CHANGED")
         # 指紋比對通過後、建立房間前驗證題組；任何錯誤都不留下房間
         bundles = bundles_service.validate_bundles(sheet.questions, body.bundles)
+        # 題組驗證之後驗證公平規則（Step 11）；任何錯誤都不留下房間
+        fairness = fairness_service.validate_fairness(sheet.questions, body.fairness)
     elif body and body.bundles:
         raise err("BUNDLES_INVALID", {"reason": "NO_QUESTIONS", "questionIds": []})
-    room = rooms.create_room(sheet, bundles)
+    elif body and body.fairness:
+        fairness_service.validate_fairness([], body.fairness)  # 沒有題目：非預設規則丟 NO_QUESTIONS
+    room = rooms.create_room(sheet, bundles, fairness)
     return {
         "code": room.code,
         "teacherToken": room.teacher_token,
@@ -62,6 +70,7 @@ async def create_room(body: CreateBody | None = None):
         "sheetTitle": room.sheet.sheet_title if room.sheet else None,
         "questions": [question_public(q) for q in room.questions],
         "bundles": [bundle_public(b) for b in room.bundles],
+        "fairness": fairness_public(room.fairness),
     }
 
 
@@ -98,6 +107,14 @@ async def review_submission(
 ):
     """老師駁回／恢復某組在某搶答單位的送出（僅搶答結束後、最新一輪；憑證只讀標頭）。"""
     room = rooms.verify_teacher(code, _bearer(authorization))
+
+    def winners_now() -> dict[str, str | None]:
+        return {
+            u: (w.normalized_name if w else None)
+            for u, w in effective.effective_winners(room, room.round).items()
+        }
+
+    before = winners_now() if room.phase == "Ended" else {}
     record, changed = review.apply_review(
         room,
         round_no=body.round,
@@ -107,7 +124,16 @@ async def review_submission(
         reason=body.reason,
     )
     if changed:
-        await review.publish_review(room)
+        # Step 11：公平規則使審核連動改變其他單位的獲勝者時，提示老師（被審核的單位本身不列入）
+        after = winners_now()
+        order: dict[str, int] = {}
+        for i, q in enumerate(room.questions):
+            order.setdefault(bundles_service.unit_of(room, q.id), i)
+        changed_units = sorted(
+            (u for u in after if u != body.unitId and after[u] != before.get(u)),
+            key=lambda u: order.get(u, len(order)),
+        )
+        await review.publish_review(room, changed_units)
     out = {
         "changed": changed,
         "round": room.round,

@@ -5,6 +5,7 @@
 唯讀：不修改任何紀錄（僅追加）；整段同步、不得 await，因此是一致快照（題組成員必定一起出現）。
 時間為送出當下由後端產生的 UTC（原則 II）；排名直接取自送出紀錄，不重新計算。
 Step 9：另追加審核狀態、遞補後名次、審核理由、審核時間（由審核紀錄推導，仍唯讀）。
+Step 11：再追加獲勝狀態、未獲勝原因（由 effective.allocate 推導；各輪依該輪的規則與審核各自重算）。
 只可匯入 ..models、bundles、effective，避免循環匯入。
 """
 import csv
@@ -16,7 +17,16 @@ from . import bundles, effective
 COLUMNS = [
     "輪次", "題號", "題組", "組別", "答案", "接收時間", "排名",
     "審核狀態", "遞補後名次", "審核理由", "審核時間",
+    "獲勝狀態", "未獲勝原因",
 ]
+
+# 公平分配結果 → 未獲勝原因（Won／Kept 為獲勝，原因空白）
+_LOSS_REASON = {
+    "Invalid": "被駁回",
+    "YieldedCap": "已達上限",
+    "YieldedCooldown": "冷卻中",
+    "Behind": "名次落後",
+}
 
 # 以這些字元開頭的文字可能被試算表當成公式（CSV injection）
 _FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r", "\n")
@@ -45,6 +55,14 @@ def build_rows(room: Room) -> list[list]:
     invalid = {n: effective.invalid_keys(room, n) for n in rounds}
     state = {n: effective.review_state(room, n) for n in rounds}
     succession = {n: effective.succession_ranks(room, n) for n in rounds}
+    allocation = {n: effective.allocate(room, n) for n in rounds}
+
+    def fairness_cols(s) -> list:
+        unit = bundles.unit_of(room, s.question_id)
+        status = allocation[s.round].status.get((unit, s.normalized_name), "Won")
+        if status in ("Won", "Kept"):
+            return ["獲勝", ""]
+        return ["未獲勝", _LOSS_REASON.get(status, "")]
 
     def review_cols(s) -> list:
         unit = bundles.unit_of(room, s.question_id)
@@ -68,6 +86,7 @@ def build_rows(room: Room) -> list[list]:
             iso(s.submitted_at),
             s.rank,
             *review_cols(s),
+            *fairness_cols(s),
         ]
         for s in subs
     ]

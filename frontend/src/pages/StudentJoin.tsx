@@ -6,6 +6,7 @@ import {
   loadStudentJoin,
   saveStudentJoin,
   type BundleItem,
+  type FairnessRule,
   type QuestionItem,
   type RoomPhase,
 } from '../lib/api'
@@ -41,6 +42,8 @@ export default function StudentJoin() {
   const [bundles, setBundles] = useState<BundleItem[]>([])
   const bundlesRef = useRef<BundleItem[]>([])
   const [bundleErrors, setBundleErrors] = useState<Record<string, string>>({})
+  // 公平規則（Step 11，公開）：只含上限與冷卻兩個數字；等待搶答階段顯示說明
+  const [fairness, setFairness] = useState<FairnessRule | null>(null)
   const lastRound = useRef(0)
   const roomCodeRef = useRef('')
   const activeRef = useRef(active)
@@ -146,6 +149,7 @@ export default function StudentJoin() {
       if (draft && draft.round === round) setValues(draft.values)
       setQuestions((msg.questions as QuestionItem[]) ?? [])
       bundlesRef.current = (msg.bundles as BundleItem[]) ?? []
+      setFairness((msg.fairness as FairnessRule | null | undefined) ?? null)
       setBundles(bundlesRef.current)
       setTexts((msg.texts as Record<string, string>) ?? {}) // 搶答中以外一律為空
       applyPhase(msg.phase as RoomPhase, round)
@@ -269,6 +273,16 @@ export default function StudentJoin() {
           <p className="rounded bg-slate-50 p-2 text-sm text-slate-600">
             老師可審核答案；答案被判定無效時，名次由次順位組別遞補。
           </p>
+        )}
+        {roomPhase === 'Waiting' && fairness !== null && (
+          <div className="space-y-1 rounded bg-slate-50 p-2 text-sm text-slate-600">
+            {fairness.winCap !== null && (
+              <p>每組最多搶得 {fairness.winCap} 題；達上限後，其後的題目會讓位給其他組別。</p>
+            )}
+            {fairness.cooldownSeconds > 0 && (
+              <p>搶得一題後，{fairness.cooldownSeconds} 秒內送出的答案不能再搶得題目。</p>
+            )}
+          </div>
         )}
         {roomPhase === 'Ended' && result && resultUpdated && (
           <p role="status" className="rounded bg-amber-50 p-2 text-sm font-semibold text-amber-800">

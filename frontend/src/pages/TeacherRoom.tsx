@@ -11,6 +11,7 @@ import {
   startAnswering,
   type BackfillRecordItem,
   type BundleItem,
+  type FairnessRule,
   type QuestionItem,
   type ReviewItem,
   type RoomPhase,
@@ -52,12 +53,15 @@ export default function TeacherRoom() {
   const [submissions, setSubmissions] = useState<SubmissionItem[]>([])
   const [result, setResult] = useState<ResultData | null>(null)
   const [board, setBoard] = useState<Board | null>(null)
+  // 審核連動改變獲勝者的其他單位（Step 11）：下一次搶答開始時清空
+  const [changedUnits, setChangedUnits] = useState<string[]>([])
   const [revoked, setRevoked] = useState(false)
   const [error, setError] = useState('')
   const [exporting, setExporting] = useState(false)
   const [reviews, setReviews] = useState<ReviewItem[]>([])
   const [backfills, setBackfills] = useState<BackfillRecordItem[]>([])
   const [sheetUrl, setSheetUrl] = useState<string | null>(null)
+  const [fairness, setFairness] = useState<FairnessRule | null>(null)
 
   useEffect(() => {
     if (!session) nav('/', { replace: true })
@@ -82,6 +86,7 @@ export default function TeacherRoom() {
             reviews?: ReviewItem[]
             backfills?: BackfillRecordItem[]
             sheetUrl?: string | null
+            fairness?: FairnessRule | null
           }
           setRoomPhase(room.phase)
           setQuestions(room.questions ?? [])
@@ -95,6 +100,7 @@ export default function TeacherRoom() {
           setReviews(room.reviews ?? [])
           setBackfills(room.backfills ?? [])
           setSheetUrl(room.sheetUrl ?? null)
+          setFairness(room.fairness ?? null)
         }
         break
       case 'question_texts':
@@ -125,6 +131,7 @@ export default function TeacherRoom() {
       case 'review_updated':
         // 審核後：整份覆蓋看板、審核紀錄與有效結果（後端為事實來源）
         setBoard(msg.board as Board)
+        setChangedUnits((msg.changedUnits as string[] | undefined) ?? [])
         setReviews((msg.reviews as ReviewItem[]) ?? [])
         setResult((msg.result as ResultData | null) ?? null)
         break
@@ -132,7 +139,10 @@ export default function TeacherRoom() {
         setResult({ round: msg.round as number, results: msg.results as ResultData['results'] })
         break
       case 'phase_changed':
-        if (msg.phase === 'Answering') setResult(null)
+        if (msg.phase === 'Answering') {
+          setResult(null)
+          setChangedUnits([])
+        }
         setRound(msg.round as number)
         setRoomPhase(msg.phase as RoomPhase)
         break
@@ -282,6 +292,14 @@ export default function TeacherRoom() {
           恢復碼：<span className="font-mono font-semibold">{session.recoveryCode}</span>
           （換裝置時需要，請妥善保存）
         </p>
+        {fairness !== null && (
+          <p className="mt-2 text-sm font-semibold text-indigo-700">
+            公平規則：
+            {fairness.winCap !== null && `每組最多搶得 ${fairness.winCap} 題`}
+            {fairness.winCap !== null && fairness.cooldownSeconds > 0 && '・'}
+            {fairness.cooldownSeconds > 0 && `搶得後冷卻 ${fairness.cooldownSeconds} 秒`}
+          </p>
+        )}
       </section>
 
       {closed && (
@@ -346,6 +364,7 @@ export default function TeacherRoom() {
           round={round}
           onReview={onReview}
           reviewHint={reviewHint}
+          changedUnits={changedUnits}
         />
       </section>
 
