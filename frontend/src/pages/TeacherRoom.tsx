@@ -8,6 +8,7 @@ import {
   exportRecords,
   reviewSubmission,
   loadTeacherSession,
+  projectorUrl,
   startAnswering,
   type BackfillRecordItem,
   type BundleItem,
@@ -62,6 +63,9 @@ export default function TeacherRoom() {
   const [backfills, setBackfills] = useState<BackfillRecordItem[]>([])
   const [sheetUrl, setSheetUrl] = useState<string | null>(null)
   const [fairness, setFairness] = useState<FairnessRule | null>(null)
+  // 唯讀投影憑證（Step 12）：只用於組成投影網址，不含老師憑證
+  const [projectorKey, setProjectorKey] = useState('')
+  const [linkCopied, setLinkCopied] = useState(false)
 
   useEffect(() => {
     if (!session) nav('/', { replace: true })
@@ -87,6 +91,7 @@ export default function TeacherRoom() {
             backfills?: BackfillRecordItem[]
             sheetUrl?: string | null
             fairness?: FairnessRule | null
+            projectorKey?: string
           }
           setRoomPhase(room.phase)
           setQuestions(room.questions ?? [])
@@ -101,6 +106,7 @@ export default function TeacherRoom() {
           setBackfills(room.backfills ?? [])
           setSheetUrl(room.sheetUrl ?? null)
           setFairness(room.fairness ?? null)
+          setProjectorKey(room.projectorKey ?? '')
         }
         break
       case 'question_texts':
@@ -300,6 +306,33 @@ export default function TeacherRoom() {
             {fairness.cooldownSeconds > 0 && `搶得後冷卻 ${fairness.cooldownSeconds} 秒`}
           </p>
         )}
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+          <button
+            type="button"
+            disabled={!projectorKey}
+            onClick={() => window.open(projectorUrl(session.code, projectorKey), '_blank', 'noopener')}
+            className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            開啟投影視圖
+          </button>
+          <button
+            type="button"
+            disabled={!projectorKey}
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(location.origin + projectorUrl(session.code, projectorKey))
+                setLinkCopied(true)
+                setTimeout(() => setLinkCopied(false), 2000)
+              } catch {
+                /* 無剪貼簿權限時略過，仍可用「開啟投影視圖」 */
+              }
+            }}
+            className="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50"
+          >
+            {linkCopied ? '已複製' : '複製投影網址'}
+          </button>
+          <span className="text-xs text-slate-500">投影網址只能檢視、不能操作</span>
+        </div>
       </section>
 
       {closed && (

@@ -9,7 +9,7 @@ apply_review 整段同步、不得 await：驗證、重複判斷與追加在同�
 from ..models import ReviewRecord, Room, err, utcnow
 from ..normalize import normalize_group_name
 from ..realtime import realtime
-from . import effective, ranking, results, rooms
+from . import effective, projector, ranking, results, rooms
 
 MAX_REASON_LENGTH = 100
 _ACTIONS = {"invalid": "Invalid", "valid": "Valid"}
@@ -77,3 +77,4 @@ async def publish_review(room: Room, changed_units: list[str] | None = None) -> 
     )
     # 學生：沿用結果公布的專用通道，內容只有各題有效第一名的組名＋答案（不含被駁回者、理由、名次）
     await realtime.broadcast_result(room.code, {"type": "round_result", "reviewed": True, **result})
+    await projector.publish(room)  # 投影視圖：得主與排行榜隨重新分配更新（Step 12）

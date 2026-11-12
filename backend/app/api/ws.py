@@ -1,11 +1,12 @@
 import asyncio
+import hmac
 import json
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..models import AppError, bundle_public, err, fairness_public, question_public, question_texts
 from ..realtime import close_safe, realtime, send_json_safe
-from ..services import groups, ranking, results, rooms, submissions
+from ..services import groups, projector, ranking, results, rooms, submissions
 
 router = APIRouter()
 
@@ -44,6 +45,7 @@ async def _handle_bundle_submit(ws: WebSocket, room, group, data: dict) -> None:
     await realtime.broadcast_to_other_groups(
         room.code, group.normalized_name, submissions.to_bundle_hint_event(subs)
     )
+    await projector.publish(room)  # 投影視圖：匿名進度（Step 12）
 
 
 @router.websocket("/ws/student")
@@ -132,6 +134,7 @@ async def student_ws(ws: WebSocket):
                 await realtime.broadcast_to_other_groups(
                     room.code, group.normalized_name, submissions.to_other_groups_event(sub)
                 )
+                await projector.publish(room)  # 投影視圖：匿名進度（Step 12）
     except WebSocketDisconnect:
         pass
     finally:
@@ -162,3 +165,32 @@ async def teacher_ws(ws: WebSocket, token: str = "", code: str = ""):
     finally:
         realtime.remove_teacher(room.code, ws)
         rooms.touch(room)
+
+
+@router.websocket("/ws/projector")
+async def projector_ws(ws: WebSocket, code: str = "", key: str = ""):
+    """投影視圖（Step 12）：唯讀、只推送。憑證錯誤、房間不存在一律同一則訊息（不洩漏房間是否存在）。"""
+    await ws.accept()
+    try:
+        room = rooms.get_room(code)
+        ok = bool(key) and hmac.compare_digest(key.encode(), room.projector_key.encode())
+    except AppError:
+        ok = False
+    if not ok:
+        await send_json_safe(ws, {"type": "projector_unavailable"})
+        await close_safe(ws, 1008)
+        return
+    # 不呼叫 rooms.touch：投影連線不算活動；不登記為組別
+    if room.status == "Closed":
+        await send_json_safe(ws, projector.build_state(room))
+        await close_safe(ws, 1000)
+        return
+    realtime.add_projector(room.code, ws)
+    try:
+        await send_json_safe(ws, projector.build_state(room))
+        while True:
+            await ws.receive_text()  # 一律丟棄：投影連線唯讀
+    except WebSocketDisconnect:
+        pass
+    finally:
+        realtime.remove_projector(room.code, ws)

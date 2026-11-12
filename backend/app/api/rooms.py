@@ -71,6 +71,7 @@ async def create_room(body: CreateBody | None = None):
         "questions": [question_public(q) for q in room.questions],
         "bundles": [bundle_public(b) for b in room.bundles],
         "fairness": fairness_public(room.fairness),
+        "projectorKey": room.projector_key,
     }
 
 

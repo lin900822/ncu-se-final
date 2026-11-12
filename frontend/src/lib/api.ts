@@ -157,13 +157,37 @@ export async function createRoom(opts?: {
   fingerprint: string
   bundles?: string[][]
   fairness?: { winCap?: number | null; cooldownSeconds?: number }
-}): Promise<TeacherSession & { bundles?: BundleItem[]; fairness?: FairnessRule | null }> {
+}): Promise<TeacherSession & { bundles?: BundleItem[]; fairness?: FairnessRule | null; projectorKey?: string }> {
   return request<TeacherSession>('/api/rooms', {
     method: 'POST',
     ...(opts
       ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(opts) }
       : {}),
   })
+}
+
+/** 投影視圖（Step 12）的整份唯讀狀態：全班公開內容；搶答中只有匿名進度，不含組名與答案。 */
+export interface ProjectorState {
+  type: 'projector_state'
+  code: string
+  status: 'Open' | 'Closed'
+  phase: 'Waiting' | 'Answering' | 'Ended'
+  round: number
+  groups: string[]
+  questions: { id: string; number: number; sub: number | null; label: string }[]
+  bundles: { id: string; questionIds: string[] }[]
+  progress: { answered: number; total: number } | null
+  submitted: Record<string, boolean> | null
+  result: {
+    round: number
+    results: { questionId: string; winnerGroup: string | null; answer: string | null; noValid?: boolean }[]
+  } | null
+  scoreboard: { group: string; score: number; rank: number }[]
+}
+
+/** 投影網址：只含唯讀投影憑證，不含老師憑證。 */
+export function projectorUrl(code: string, key: string): string {
+  return `/projector?code=${encodeURIComponent(code)}&key=${encodeURIComponent(key)}`
 }
 
 /** 把 API 錯誤轉成給老師看的中文訊息（題號問題會列出重複與缺漏） */

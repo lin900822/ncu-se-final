@@ -25,6 +25,7 @@ def client():
     store.recovery_index.clear()
     realtime.teachers.clear()
     realtime.students.clear()
+    realtime.projectors.clear()
     with TestClient(app) as c:
         yield c
 
@@ -282,3 +283,32 @@ def make_ranked_room(client, bundles=(), groups=("第 1 組", "第 2 組", "第 
 def drain(ws, n):
     """依序讀取 n 則訊息。"""
     return [ws.receive_json() for _ in range(n)]
+
+
+def get_projector_key(client, code, token):
+    """老師端取得投影憑證：連老師 /ws/teacher 讀 snapshot.room.projectorKey。"""
+    with client.websocket_connect(f"/ws/teacher?token={token}&code={code}") as t:
+        return t.receive_json()["room"]["projectorKey"]
+
+
+def projector_ws(client, code, key):
+    """開啟投影連線；回傳 (context manager, ws, 第一則訊息)。呼叫端負責 __exit__。"""
+    cm = client.websocket_connect(f"/ws/projector?code={code}&key={key}")
+    ws = cm.__enter__()
+    return cm, ws, ws.receive_json()
+
+
+def take_projector(ws, n):
+    """依序讀取投影連線的 n 則訊息（唯讀通道無法送哨兵，事件數由呼叫端決定）。"""
+    return [ws.receive_json() for _ in range(n)]
+
+
+def projector_until(ws, pred, limit=50):
+    """持續讀取直到 pred(msg) 為真並回傳該則（最多 limit 則，避免卡住）；同時回傳之前讀到的所有訊息。"""
+    seen = []
+    for _ in range(limit):
+        m = ws.receive_json()
+        seen.append(m)
+        if pred(m):
+            return m, seen
+    raise AssertionError("未在限定訊息數內等到預期的投影訊息")

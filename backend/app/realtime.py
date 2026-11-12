@@ -7,6 +7,8 @@
 - 組別清單與狀態只會送給老師連線。
 - 名次、看板、領先組別與領先題數（Step 5）僅能經 `broadcast_to_teachers` 傳送。
 - 結算後的結果公布（Step 6）只能經 `broadcast_result`（學生）與 `broadcast_to_teachers`（老師）。
+- 投影通道（Step 12）只能傳「全班公開」的 `projector_state` 與 `countdown`：搶答中嚴禁傳入組名（名單除外）、
+  答案、名次、時間、讓位／保留；投影連線唯讀、不計為組別。
 """
 from fastapi import WebSocket
 
@@ -30,6 +32,8 @@ class Realtime:
         self.teachers: dict[str, set[WebSocket]] = {}
         # 同組可有多個視窗（Step 4）：(房間代碼, 正規化組名) -> 連線集合
         self.students: dict[tuple[str, str], set[WebSocket]] = {}
+        # 投影視圖（Step 12）：唯讀連線，不計為組別、不計入 has_connections
+        self.projectors: dict[str, set[WebSocket]] = {}
 
     # --- 老師連線 ---
     def add_teacher(self, code: str, ws: WebSocket) -> None:
@@ -51,6 +55,25 @@ class Realtime:
         for ws in list(self.teachers.pop(code, ())):
             await send_json_safe(ws, {"type": "token_revoked"})
             await close_safe(ws, 4401)
+
+    # --- 投影連線（唯讀） ---
+    def add_projector(self, code: str, ws: WebSocket) -> None:
+        self.projectors.setdefault(code, set()).add(ws)
+
+    def remove_projector(self, code: str, ws: WebSocket) -> None:
+        conns = self.projectors.get(code)
+        if conns:
+            conns.discard(ws)
+            if not conns:
+                self.projectors.pop(code, None)
+
+    def has_projectors(self, code: str) -> bool:
+        return bool(self.projectors.get(code))
+
+    async def broadcast_to_projectors(self, code: str, message: dict) -> None:
+        """投影視圖：僅限全班公開內容（projector_state／countdown），搶答中嚴禁組名（名單除外）與答案。"""
+        for ws in list(self.projectors.get(code, ())):
+            await send_json_safe(ws, message)
 
     # --- 學生連線 ---
     def add_student(self, code: str, normalized_name: str, ws: WebSocket) -> None:
@@ -113,10 +136,13 @@ class Realtime:
     async def close_room_connections(self, code: str, reason: str) -> None:
         message = {"type": "room_closed", "reason": reason}
         targets = list(self.teachers.pop(code, ()))
+        projectors = list(self.projectors.pop(code, ()))  # 投影連線：最終狀態已先送出，這裡只關閉
         for key in [k for k in self.students if k[0] == code]:
             targets.extend(self.students.pop(key))
         for ws in targets:
             await send_json_safe(ws, message)
+            await close_safe(ws, 1000)
+        for ws in projectors:
             await close_safe(ws, 1000)
 
 

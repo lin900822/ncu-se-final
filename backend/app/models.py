@@ -184,6 +184,8 @@ class Room:
     backfills: list[BackfillRecord] = field(default_factory=list)
     # 公平規則（Step 11）：建立房間時確定，之後不可修改
     fairness: FairnessRule = field(default_factory=FairnessRule)
+    # 唯讀投影憑證（Step 12）：建立房間時產生、之後固定；只能開啟投影視圖，不能執行任何操作
+    projector_key: str = ""
 
 
 class AppError(Exception):

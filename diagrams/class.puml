@@ -7,6 +7,7 @@ class Room {
   lastActivityAt : datetime
   teacherToken : string
   recoveryCode : string
+  projectorKey : string (唯讀投影憑證，建立時產生、固定；不等於老師憑證)
   closedReason : Manual | IdleTimeout
   closedAt : datetime
   phase : Waiting | Answering | Ended
@@ -211,4 +212,25 @@ Room "1" *-- "0..*" QuestionBundle : 題組設定(建立後固定)
 QuestionBundle "0..1" o-- "2..*" Question : 綁定相鄰題目
 QuestionBundle "1" -- "0..*" Submission : 整組一次送出
 Room "1" *-- "0..*" Group : 包含\n(組名於房間內唯一)
+class ProjectorView <<derived, read-only>> {
+  status : Open | Closed (Closed 時顯示「房間已結束」並保留最後內容)
+  phase : Waiting | Answering | Ended
+  roomCode : string
+  groups : string[] (等待搶答時顯示)
+  questionStates : (unitId, 尚無組別送出 | 已有組別送出)[] (搶答中，匿名)
+  winners : (unitId, winnerGroup, answer)[] (結算後，與 RoundResult 同一份)
+  scoreboard : GroupScore[] (已結算輪次累計，各階段皆有)
+}
+class GroupScore <<derived>> {
+  groupName : string
+  score : int (已結算各輪取得題數累計；題組N題計N)
+  rank : int (同分並列)
+}
+note right of ProjectorView
+  只含「全班公開」內容；搶答中不含組名/答案/名次/時間/讓位；
+  無任何控制動作；不計為組別；倒數動畫由開始搶答時的一次性 countdown 事件觸發，晚連線不補播。
+end note
+EffectiveResult ..> GroupScore : 各輪有效結果累計
+GroupScore "0..*" --o "1" ProjectorView
+Room "1" ..> "0..*" ProjectorView : 以投影憑證開啟
 @enduml

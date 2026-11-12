@@ -4,7 +4,7 @@ from fastapi import WebSocket
 from ..models import Group, Room, err, utcnow
 from ..normalize import normalize_group_name, validate_group_name
 from ..realtime import realtime
-from . import rooms
+from . import projector, rooms
 
 
 MAX_WINDOWS_PER_GROUP = 10
@@ -45,6 +45,7 @@ async def announce_join(room: Room, group: Group, is_new: bool, was_online: bool
             room.code,
             {"type": "group_joined", "group": group.to_dict(), "count": len(room.groups)},
         )
+        await projector.publish(room)  # 投影視圖的組別名單（Step 12）
     else:
         await realtime.broadcast_to_teachers(
             room.code, {"type": "group_status", "name": group.name, "online": True}

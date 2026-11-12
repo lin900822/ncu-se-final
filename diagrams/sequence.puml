@@ -6,6 +6,7 @@ participant "老師端" as T
 participant "學生端" as S
 participant "同組其他視窗" as S2
 participant "其他組別" as O
+participant "投影視圖" as P
 participant "後端" as B
 participant "Google Sheet" as G
 opt 老師貼 Google Sheet 連結
@@ -174,6 +175,25 @@ opt 老師匯出紀錄
     B --> T : CSV 檔(搶答紀錄_代碼_日期.csv)
     T --> 老師 : 瀏覽器下載
   end
+end
+opt 老師開啟大螢幕投影視圖
+  T -> B : getProjectorUrl(老師憑證)
+  B --> T : 投影網址(只含唯讀投影憑證)
+  老師 -> P : 在投影電腦開啟網址
+  P -> B : 以投影憑證連線(唯讀)
+  alt 憑證無效/房間不存在
+    B --> P : 無法顯示(不透露房間是否存在)
+  else 有效
+    B --> P : 目前階段內容(等待:代碼+組別 / 搶答中:匿名進度 / 已結束:得主+排行榜)
+    note over P : 畫面無任何控制按鈕;晚載入不補播倒數
+  end
+  老師 -> T : 開始搶答
+  B -> P : projector_state(Answering,匿名進度) 再送一次性 countdown(round)
+  P -> P : 播放3、2、1、開始!倒數動畫(純視覺,不延後學生端開放)
+  S -> B : 送出答案
+  B -> P : 匿名進度(某題已有組別送出)\n不含組名/答案/名次
+  老師 -> T : 結束搶答 / 審核
+  B -> P : 得主看板(組名+答案)+各組得分排行榜\n與學生端結果同一份有效結果
 end
 opt 學生關閉頁面或斷線
   S -[#red]-> B : 連線中斷(含心跳逾時)

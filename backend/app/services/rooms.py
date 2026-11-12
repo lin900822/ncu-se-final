@@ -15,7 +15,7 @@ from ..normalize import normalize_room_code
 from ..realtime import realtime
 from ..store import store
 from . import bundles as bundles_service
-from . import effective, ranking, results
+from . import effective, projector, ranking, results
 
 
 def create_room(sheet=None, bundles=None, fairness=None) -> Room:
@@ -27,6 +27,7 @@ def create_room(sheet=None, bundles=None, fairness=None) -> Room:
         last_activity_at=now,
         teacher_token=store.generate_token(),
         recovery_code=store.generate_recovery_code(),
+        projector_key=store.generate_token(),  # 唯讀投影憑證（Step 12），與老師憑證不同
     )
     if sheet is not None:
         room.sheet = sheet.source
@@ -76,6 +77,7 @@ async def close_room(room: Room, reason: str) -> None:
     room.status = "Closed"
     room.closed_reason = reason  # type: ignore[assignment]
     room.closed_at = utcnow()
+    await projector.publish(room)  # 投影視圖先收到 status=Closed 的最終狀態（Step 12）
     await realtime.close_room_connections(room.code, reason)
 
 
@@ -112,6 +114,7 @@ def snapshot(room: Room) -> dict:
             "reviews": [effective.review_public(r) for r in room.reviews],  # 僅老師（Step 9）
             "backfills": [backfill_public(r) for r in room.backfills],  # 僅老師（Step 10）
             "fairness": fairness_public(room.fairness),  # 規則本身（Step 11）
+            "projectorKey": room.projector_key,  # 僅老師 snapshot（Step 12）
             "sheetUrl": room.sheet.url if room.sheet else None,  # 僅老師；回填後「開啟試算表」連結
             "board": ranking.build_board(room),
             "result": results.build_result(room),

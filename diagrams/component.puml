@@ -4,6 +4,7 @@ actor 老師
 actor 學生
 component "老師端畫面" as TUI
 component "學生端畫面" as SUI
+component "投影視圖\n(大螢幕、唯讀、無控制按鈕\n倒數動畫/進度看板/得主看板/排行榜)" as PUI
 package "後端" {
   component "房間服務\n(代碼產生/驗證\n老師憑證與恢復碼)" as RoomSvc
   component "組別服務\n(組名正規化/唯一性\n在線時拒絕重複加入)" as GroupSvc
@@ -16,6 +17,7 @@ package "後端" {
   component "審核服務\n(驗證老師憑證/僅Ended最新一輪\n追加審核紀錄(駁回/恢復,必填理由)\n重複動作不重複記錄\n由原始名次+審核紀錄推導有效結果)" as ReviewSvc
   component "回填服務\n(驗證老師憑證/僅Ended/房間有試算表\n再驗證結構指紋(不符拒絕)\n產生回填計畫:寫入/略過/清空\n純文字原樣寫入,全有或全無\n追加回填紀錄)" as BackfillSvc
   component "公平規則\n(每組獲勝上限/冷卻秒數)\n依處理序分配首選資格\n達上限或冷卻中讓位,全員不符則保留\n確定性可重現,不改動送出)" as FairSvc
+  component "投影服務\n(驗證唯讀投影憑證\n推導全班公開內容:搶答中匿名進度\n結算後得主+得分排行\n只讀、不計為組別)" as ProjSvc
   component "階段服務\n(開始/結束搶答\n老師憑證驗證\n階段為唯一事實來源)" as PhaseSvc
   component "房間逾時排程\n(閒置2小時自動結束)" as Expiry
   component "即時廣播通道" as Realtime
@@ -25,6 +27,7 @@ file ".env\nGOOGLE_SERVICE_ACCOUNT_FILE" as Env
 file "服務帳號 JSON 金鑰\n(不入版控)" as Key
 cloud "Google Sheet" as Sheets
 老師 --> TUI
+老師 --> PUI : 開在大螢幕(投影網址)
 學生 --> SUI
 TUI --> SheetSvc : 貼上連結預覽題號\n(確認後才建立房間)
 SheetSvc --> RoomSvc : 驗證通過才建立房間(含題目)
@@ -78,4 +81,11 @@ Expiry --> RoomSvc : 結束閒置房間
 Expiry --> Store : 掃描最後活動時間
 GroupSvc --> Realtime : 組別變更事件
 Realtime --> TUI : 即時組別清單
+TUI --> RoomSvc : 取得投影網址(老師憑證;網址只含投影憑證)
+PUI --> ProjSvc : 以投影憑證連線(唯讀)
+ProjSvc --> RoomSvc : 驗證投影憑證/房間狀態
+ProjSvc --> ResultSvc : 讀取有效結果(含審核與公平規則)
+ProjSvc --> Store : 唯讀讀取各輪有效結果(推導得分)
+ProjSvc --> Realtime : 僅投影:階段變更/匿名進度/結算後得主與排行\n搶答中不含組名與答案
+Realtime --> PUI : 即時更新(斷線重連後由後端還原)
 @enduml
