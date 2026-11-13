@@ -5,7 +5,7 @@ from pathlib import Path
 
 from app.store import store
 
-from .conftest import auth, join_student, make_started_room
+from .conftest import auth, join_student, make_ranked_room, make_started_room, post_review
 from .test_submission_privacy import flush
 
 APP = Path(__file__).resolve().parents[1] / "app"
@@ -64,10 +64,27 @@ def test_no_result_before_end_and_only_winners_after(client, use_sheet):
 
 
 def test_static_scan_result_channels():
-    all_src = {p: p.read_text() for p in APP.rglob("*.py")}
+    all_src = {p: p.read_text(encoding="utf-8") for p in APP.rglob("*.py")}
     users = [p.name for p, s in all_src.items() if "broadcast_result(" in s and p.name != "realtime.py"]
-    assert users == ["phase.py"]
+    # 只允許階段服務（結算首次公布）與審核服務（老師審核後的更新，Step 9）對學生公布結果
+    assert sorted(users) == ["phase.py", "review.py"]
     for p, s in all_src.items():
         for m in re.finditer(r"broadcast_to_(students|group|other_groups)\(", s):
             call = s[m.start(): m.start() + 200]
             assert "round_result" not in call and "build_result" not in call, p
+
+
+def test_students_get_no_leak_words_after_a_review(client, use_sheet):
+    """Step 9：老師駁回後，學生收到的更新結果同樣不含名次、看板等任何禁用詞。"""
+    code, token, conns = make_ranked_room(client)
+    try:
+        for _cm, w in conns:
+            flush(w)
+        assert post_review(client, code, token, "1", "第 1 組", "invalid", "答案錯誤").json()["changed"] is True
+        text = dumps([m for _cm, w in conns for m in flush(w)])
+        assert '"round_result"' in text
+        for word in LEAK:
+            assert word not in text, word
+    finally:
+        for cm, _w in conns:
+            cm.__exit__(None, None, None)

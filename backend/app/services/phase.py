@@ -5,7 +5,7 @@
 """
 from ..models import PhaseChange, Room, err, iso, question_texts, utcnow
 from ..realtime import realtime
-from . import ranking, results, rooms
+from . import projector, ranking, results, rooms
 
 
 async def _broadcast(room: Room, change: PhaseChange) -> None:
@@ -42,6 +42,9 @@ async def start_answering(room: Room) -> tuple[str, int, bool]:
     await _reveal_texts(room, change)
     # 新一輪：老師端看板重設為空白（僅老師，原則 III）
     await realtime.broadcast_to_teachers(room.code, ranking.build_board(room))
+    # 投影視圖（Step 12）：先推新狀態（匿名進度），再送一次性倒數事件；純視覺，不影響學生端開放
+    await projector.publish(room)
+    await projector.announce_countdown(room)
     return room.phase, room.round, True
 
 
@@ -59,6 +62,7 @@ async def end_answering(room: Room) -> tuple[str, int, bool]:
     message = {"type": "round_result", **results.build_result(room)}
     await realtime.broadcast_result(room.code, message)
     await realtime.broadcast_to_teachers(room.code, message)
+    await projector.publish(room)  # 投影視圖：結算後的得主與排行榜（Step 12）
     return room.phase, room.round, True
 
 

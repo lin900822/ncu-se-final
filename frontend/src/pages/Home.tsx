@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { QuestionList } from '../components/QuestionFields'
+import BundleEditor from '../components/BundleEditor'
+import FairnessEditor, { EMPTY_FAIRNESS, parseFairness, type FairnessInput } from '../components/FairnessEditor'
 import {
+  ApiError,
   createRoom,
   describeError,
   loadTeacherSession,
@@ -27,6 +30,10 @@ export default function Home() {
   const [sheetUrl, setSheetUrl] = useState('')
   const [preview, setPreview] = useState<SheetPreview | null>(null)
   const [previewedUrl, setPreviewedUrl] = useState('')
+  // 題組（Step 7）：只在預覽中暫存，確認建立時才送出；重新讀取或改連結即清除
+  const [bundles, setBundles] = useState<string[][]>([])
+  // 公平規則（Step 11）：只在預覽中暫存，確認建立時才送出；重新讀取或改連結即清除
+  const [fairness, setFairness] = useState<FairnessInput>(EMPTY_FAIRNESS)
 
   async function onCreate() {
     setBusy(true)
@@ -46,6 +53,8 @@ export default function Home() {
     setBusy(true)
     setError('')
     setPreview(null)
+    setBundles([])
+    setFairness(EMPTY_FAIRNESS)
     try {
       const url = sheetUrl.trim()
       setPreview(await previewSheet(url))
@@ -60,13 +69,27 @@ export default function Home() {
   // 老師確認預覽後才建立房間；後端會重新讀取並比對指紋
   async function onConfirm() {
     if (!preview) return
+    const parsed = parseFairness(fairness, preview.questions.length)
+    if (!parsed.ok) return // 無效時按鈕已禁用，這裡只是保險
     setBusy(true)
     setError('')
     try {
-      saveTeacherSession(await createRoom({ sheetUrl: previewedUrl, fingerprint: preview.fingerprint }))
+      saveTeacherSession(
+        await createRoom({
+          sheetUrl: previewedUrl,
+          fingerprint: preview.fingerprint,
+          bundles,
+          fairness: parsed.rule,
+        }),
+      )
       nav('/teacher')
     } catch (err) {
-      setPreview(null) // 例如試算表已變動：要求重新讀取
+      // 題組設定有誤時保留預覽讓老師修改；其他錯誤（例如試算表已變動）要求重新讀取
+      if (!(err instanceof ApiError && (err.code === 'BUNDLES_INVALID' || err.code === 'FAIRNESS_INVALID'))) {
+        setPreview(null)
+        setBundles([])
+        setFairness(EMPTY_FAIRNESS)
+      }
       setError(describeError(err))
     } finally {
       setBusy(false)
@@ -120,6 +143,8 @@ export default function Home() {
             onChange={(e) => {
               setSheetUrl(e.target.value)
               setPreview(null) // 改連結即清除預覽
+              setBundles([])
+              setFairness(EMPTY_FAIRNESS)
             }}
             placeholder="貼上 Google Sheet 連結"
             className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2"
@@ -137,10 +162,22 @@ export default function Home() {
               分頁「{preview.sheetTitle}」，共 {preview.questions.length} 題，請確認題號是否正確：
             </p>
             <QuestionList questions={preview.questions} />
+            <BundleEditor
+              questions={preview.questions}
+              bundles={bundles}
+              onChange={setBundles}
+              disabled={busy}
+            />
+            <FairnessEditor
+              questionCount={preview.questions.length}
+              value={fairness}
+              onChange={setFairness}
+              disabled={busy}
+            />
             <button
               type="button"
               onClick={onConfirm}
-              disabled={busy}
+              disabled={busy || !parseFairness(fairness, preview.questions.length).ok}
               className={`${btn} w-full bg-indigo-600 text-white hover:bg-indigo-700`}
             >
               確認建立房間

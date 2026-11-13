@@ -49,16 +49,16 @@ def test_students_never_receive_rank_or_board(client, use_sheet):
 
 def test_rank_outputs_only_on_teacher_paths():
     """靜態掃描：ranking／rank 只出現在老師路徑，不在學生廣播呼叫附近。"""
-    ws_src = (APP / "api" / "ws.py").read_text()
+    ws_src = (APP / "api" / "ws.py").read_text(encoding="utf-8")
     for m in re.finditer(r"broadcast_to_(group|other_groups|students)\(", ws_src):
         call = ws_src[m.start(): m.start() + 200]
         assert "ranking" not in call and "rank" not in call.replace("broadcast_to_other_groups", "")
     for f in ["services/groups.py", "services/phase.py"]:
-        src = (APP / f).read_text()
+        src = (APP / f).read_text(encoding="utf-8")
         for m in re.finditer(r"broadcast_to_students\(", src):
             assert "build_board" not in src[m.start(): m.start() + 200]
     # to_group_event / to_other_groups_event 不含 rank
-    sub_src = (APP / "services" / "submissions.py").read_text()
+    sub_src = (APP / "services" / "submissions.py").read_text(encoding="utf-8")
     for fn in ("to_group_event", "to_other_groups_event"):
         body = sub_src.split(f"def {fn}")[1].split("\ndef ")[0]
         assert "rank" not in body

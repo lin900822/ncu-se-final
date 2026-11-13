@@ -1,16 +1,23 @@
 @startuml component
-title 房間、階段、題目表單、答案提交、搶答順位與結果公布 - 組件圖
+title 房間、階段、題目表單、題組、答案提交、搶答順位、結果公布、紀錄匯出、人工審核遞補、回填試算表與公平機制 - 組件圖
 actor 老師
 actor 學生
 component "老師端畫面" as TUI
 component "學生端畫面" as SUI
+component "投影視圖\n(大螢幕、唯讀、無控制按鈕\n倒數動畫/進度看板/得主看板/排行榜)" as PUI
 package "後端" {
   component "房間服務\n(代碼產生/驗證\n老師憑證與恢復碼)" as RoomSvc
   component "組別服務\n(組名正規化/唯一性\n在線時拒絕重複加入)" as GroupSvc
   component "學習單服務\n(驗證連結/讀取試算表\n依表頭辨識單題/題組\n驗證題號連續且不重複\n產生指紋)" as SheetSvc
-  component "提交服務\n(階段閘門/驗證答案\n同組同題同輪只收第一筆\n序列化防重複，UTC時間)" as SubmitSvc
-  component "順位服務\n(依後端收到先後判定名次\n同題同輪唯一不並列\n追加順位紀錄，確定後不改寫)" as RankSvc
+  component "題組設定\n(預覽時綁定相鄰題目\n≥2題/一題一組/建立後固定)" as BundleSvc
+  component "提交服務\n(階段閘門/驗證答案\n題組全有或全無\n同組同單位同輪只收第一筆\n序列化防重複，UTC時間)" as SubmitSvc
+  component "順位服務\n(以搶答單位為範圍\n依後端收到先後判定名次\n同題同輪唯一不並列\n追加順位紀錄，確定後不改寫)" as RankSvc
   component "結果服務\n(結算時由各題第1名推導結果\n只公布第1名組別與答案\n每輪一次，確定後不改寫)" as ResultSvc
+  component "匯出服務\n(驗證老師憑證\n由送出紀錄推導CSV列\n全輪次/題組各題一列\n公式字元以文字呈現)" as ExportSvc
+  component "審核服務\n(驗證老師憑證/僅Ended最新一輪\n追加審核紀錄(駁回/恢復,必填理由)\n重複動作不重複記錄\n由原始名次+審核紀錄推導有效結果)" as ReviewSvc
+  component "回填服務\n(驗證老師憑證/僅Ended/房間有試算表\n再驗證結構指紋(不符拒絕)\n產生回填計畫:寫入/略過/清空\n純文字原樣寫入,全有或全無\n追加回填紀錄)" as BackfillSvc
+  component "公平規則\n(每組獲勝上限/冷卻秒數)\n依處理序分配首選資格\n達上限或冷卻中讓位,全員不符則保留\n確定性可重現,不改動送出)" as FairSvc
+  component "投影服務\n(驗證唯讀投影憑證\n推導全班公開內容:搶答中匿名進度\n結算後得主+得分排行\n只讀、不計為組別)" as ProjSvc
   component "階段服務\n(開始/結束搶答\n老師憑證驗證\n階段為唯一事實來源)" as PhaseSvc
   component "房間逾時排程\n(閒置2小時自動結束)" as Expiry
   component "即時廣播通道" as Realtime
@@ -20,14 +27,17 @@ file ".env\nGOOGLE_SERVICE_ACCOUNT_FILE" as Env
 file "服務帳號 JSON 金鑰\n(不入版控)" as Key
 cloud "Google Sheet" as Sheets
 老師 --> TUI
+老師 --> PUI : 開在大螢幕(投影網址)
 學生 --> SUI
 TUI --> SheetSvc : 貼上連結預覽題號\n(確認後才建立房間)
 SheetSvc --> RoomSvc : 驗證通過才建立房間(含題目)
+TUI --> BundleSvc : 預覽中設定/取消題組
+BundleSvc --> RoomSvc : 確認建立時驗證並一併保存
 SheetSvc --> Env : 啟動時讀取路徑
 Env ..> Key
 SheetSvc --> Sheets : 以機器人身分唯讀讀取(只讀scope)
-SUI --> RoomSvc : 取得題號清單(加入/重連)
-SUI --> SubmitSvc : 送出某題答案
+SUI --> RoomSvc : 取得題號清單+題組設定(加入/重連)
+SUI --> SubmitSvc : 送出某題或整個題組的答案
 SubmitSvc --> PhaseSvc : 檢查搶答中
 SubmitSvc --> Store : 追加送出紀錄
 SubmitSvc --> RankSvc : 有效送出→判定名次
@@ -36,8 +46,28 @@ RankSvc --> Realtime : 僅老師:進度板(領先組別/名次/領先題數)
 SubmitSvc --> Realtime : 同組視窗:已送出+內容\n老師:組別+內容+時間\n其他組:匿名「已有組別送出」
 PhaseSvc --> ResultSvc : 結束搶答時結算
 ResultSvc --> Realtime : 全體學生+老師:結果\n(僅第1名組別與答案)
-ResultSvc --> RankSvc : 讀取各題第1名
+ResultSvc --> RankSvc : 讀取各題原始名次
+ResultSvc --> ReviewSvc : 讀取審核紀錄(推導有效第1名)
+TUI --> ReviewSvc : 駁回/恢復(老師憑證+理由)
+ReviewSvc --> RoomSvc : 驗證老師憑證/階段
+ReviewSvc --> Store : 追加審核紀錄(僅追加)
+ReviewSvc --> ResultSvc : 重新推導結果
+ReviewSvc --> FairSvc : 套用上限/冷卻(讓位/保留)
+FairSvc --> Store : 讀取送出與審核紀錄(推導,不另存)
+RoomSvc --> FairSvc : 提供房間的公平規則(建立後固定)
+TUI --> RoomSvc : 建立房間時設定上限/冷卻(選填)
+FairSvc --> Realtime : 老師:各組取得題數/各筆狀態\n學生:僅公開規則文字,結算前無分配資訊
+ReviewSvc --> Realtime : 老師:審核狀態+結果\n全體學生:更新後結果(不含被駁回者與理由)
+ExportSvc --> ReviewSvc : 讀取審核狀態(匯出追加欄位)
 TUI --> PhaseSvc : 開始/結束搶答
+TUI --> BackfillSvc : 回填至Google Sheet(預覽摘要→確認)
+BackfillSvc --> RoomSvc : 驗證老師憑證
+BackfillSvc --> ReviewSvc : 讀取有效結果(含遞補)
+BackfillSvc --> Sheets : 以機器人身分讀寫(僅回填時寫入,只寫作答格)
+BackfillSvc --> Store : 追加回填紀錄(僅追加)
+TUI --> ExportSvc : 匯出紀錄(老師憑證)
+ExportSvc --> RoomSvc : 驗證老師憑證(房間已結束仍可,保留24小時)
+ExportSvc --> Store : 唯讀讀取送出紀錄(不修改)
 PhaseSvc --> RoomSvc : 驗證老師憑證/房間開放
 PhaseSvc --> Store : 追加階段紀錄
 PhaseSvc --> Realtime : 階段變更事件(不含作答內容)
@@ -51,4 +81,11 @@ Expiry --> RoomSvc : 結束閒置房間
 Expiry --> Store : 掃描最後活動時間
 GroupSvc --> Realtime : 組別變更事件
 Realtime --> TUI : 即時組別清單
+TUI --> RoomSvc : 取得投影網址(老師憑證;網址只含投影憑證)
+PUI --> ProjSvc : 以投影憑證連線(唯讀)
+ProjSvc --> RoomSvc : 驗證投影憑證/房間狀態
+ProjSvc --> ResultSvc : 讀取有效結果(含審核與公平規則)
+ProjSvc --> Store : 唯讀讀取各輪有效結果(推導得分)
+ProjSvc --> Realtime : 僅投影:階段變更/匿名進度/結算後得主與排行\n搶答中不含組名與答案
+Realtime --> PUI : 即時更新(斷線重連後由後端還原)
 @enduml

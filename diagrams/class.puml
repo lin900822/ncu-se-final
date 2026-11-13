@@ -1,5 +1,5 @@
 @startuml class
-title 房間、階段、題目表單、答案提交、搶答順位與結果公布 - 類別圖
+title 房間、階段、題目表單、題組、答案提交、搶答順位、結果公布、紀錄匯出、人工審核遞補、回填試算表與公平機制 - 類別圖
 class Room {
   code : string
   status : Open | Closed
@@ -7,6 +7,7 @@ class Room {
   lastActivityAt : datetime
   teacherToken : string
   recoveryCode : string
+  projectorKey : string (唯讀投影憑證，建立時產生、固定；不等於老師憑證)
   closedReason : Manual | IdleTimeout
   closedAt : datetime
   phase : Waiting | Answering | Ended
@@ -20,6 +21,15 @@ class Question {
   cell : string (作答格位置，僅伺服器保存)
   text : string (題目欄文字；搶答開始後才送學生)
 }
+class QuestionBundle {
+  id : string (如 B1)
+  questionIds : list<string> (≥2，題目清單中相鄰)
+}
+note right of QuestionBundle
+  老師於預覽時設定、隨房間建立確定，之後不可改；
+  一題最多屬於一個題組；題目本身仍為扁平清單。
+  題組為一個搶答單位：一顆送出鈕、一個名次。
+end note
 class SheetSource {
   url : string
   spreadsheetId : string
@@ -36,26 +46,29 @@ end note
 class Submission <<append-only>> {
   groupName : string
   questionId : string
+  bundleId : string | null (題組送出時)
   round : int
   answer : string (≤500)
   submittedAt : datetime (UTC, 後端產生，僅供顯示)
   seq : int (房間內處理序，仲裁依據)
-  rank : int (同題同輪名次，確定後不改寫)
+  rank : int (同搶答單位同輪名次，確定後不改寫)
 }
 note right of Submission
-  同一組別+題目+輪次最多一筆有效；
+  同一組別+搶答單位+輪次最多一筆有效；
+  題組送出=每個成員各一筆，共用 submittedAt/seq/rank，全有或全無；
   內容僅老師與該組可見；
   rank/seq 僅老師可見，名次=最快送出，非最終獲勝。
 end note
 class QuestionProgress <<derived>> {
   questionId : string
+  bundleId : string | null (同題組各題名次清單相同)
   leaderGroup : string | null
   submittedCount : int
   ranking : list
 }
 class GroupLeadTally <<derived>> {
   groupName : string
-  leadCount : int (領先第1名題數)
+  leadCount : int (領先第1名題數；N題題組計N)
 }
 class RoundResult <<derived>> {
   round : int
@@ -63,12 +76,94 @@ class RoundResult <<derived>> {
 }
 class ResultItem <<derived>> {
   questionId : string
-  winnerGroup : string | null (無人搶答為 null)
+  winnerGroup : string | null (無人搶答或全被駁回為 null)
+  noValid : boolean (僅「有送出但全被駁回」時附 true；不含組名/答案/理由)
   answer : string | null
 }
 note right of RoundResult
-  結束搶答時由各題 rank=1 的送出推導，只含第1名；
+  由各搶答單位的「有效第1名」推導(原始名次最前且未被駁回)，只含第1名；
   其餘組別名次與答案不公布；僅在 Ended 階段提供。
+  題組各題 rank 相同，故同題組各題 winner 一致；
+  老師駁回/恢復後重新推導並通知全班(Step 9)；全部被駁回則 winner=null。
+end note
+class ReviewRecord <<append-only>> {
+  round : int
+  unitId : string (題目id 或 題組id)
+  groupName : string
+  action : Invalid | Valid (駁回 | 恢復)
+  reason : string (必填，≤100)
+  by : Teacher
+  reviewedAt : datetime (UTC, 後端產生)
+}
+note right of ReviewRecord
+  僅 Ended 階段、最新一輪、老師憑證可新增；僅追加；
+  重複動作不產生新紀錄；題組整組一起；
+  不改動 Submission 的答案/時間/原始名次；僅老師可見。
+end note
+class FairnessRule {
+  winCap : int | null (每組一輪最多搶得幾題；null=不限)
+  cooldownSeconds : int (0=不套用；0..600)
+}
+note right of FairnessRule
+  建立房間時設定、之後固定(憲章IV：進行中不得更動)；
+  學生在等待搶答階段即可看到規則；無題目的房間不提供。
+end note
+class EffectiveResult <<derived>> {
+  unitId : string
+  winnerGroup : string | null
+  successionRank : int (排除被駁回者後的名次)
+  status : Won | Yielded(已達上限/冷卻中) | Invalid | Behind | Kept(保留)
+}
+note right of EffectiveResult
+  依後端處理序逐筆判定：未被駁回、已取得題數<上限、距上次取得≥冷卻 才有資格；
+  不符資格者讓位給原始名次下一順位；全員不符資格則名次最前者「保留」；
+  題組取得計N題；每輪重算；確定性可重現；不改動任何 Submission。
+end note
+class ExportRow <<derived>> {
+  round : int
+  questionLabel : string (Q1 / Q3 / Q1（2）)
+  bundleLabel : string (題組成員題號，如 Q3、Q4；未綁定為空)
+  groupName : string (公式字元開頭時補 ')
+  answer : string (原文，公式字元開頭時補 ')
+  receivedAt : datetime (UTC，後端時間，精確到秒)
+  rank : int (原始名次)
+  reviewStatus : 有效 | 無效
+  successionRank : int | 空 (無效者空白)
+  reviewReason : string | 空
+  reviewedAt : datetime | 空 (UTC)
+  winStatus : 獲勝 | 未獲勝 (Won/Kept=獲勝)
+  lossReason : 被駁回 | 已達上限 | 冷卻中 | 名次落後 | 空 (獲勝者空白)
+}
+note right of ExportRow
+  由 Submission 推導，不另存、不可改；
+  僅老師憑證可匯出；排序=輪次→題目順序→名次；
+  不含憑證、儲存格位置、seq 等內部資訊。
+end note
+class BackfillRecord <<append-only>> {
+  round : int
+  by : Teacher
+  written : map<cell, text> (成功才有；僅伺服器保存，不外送)
+  cleared : list<cell> (成功時被清空的格)
+  skippedCount : int
+  keptCount : int (先前寫入但已被老師改過，保留不動)
+  result : Success | Failed(原因)
+  at : datetime (UTC, 後端產生)
+}
+note right of BackfillRecord
+  每次回填嘗試(成功或失敗)各一筆；僅追加；僅老師可見；
+  不保存回填前的儲存格內容(復原靠試算表版本記錄)；公開格式只含格數與結果；
+  用來辨認「先前由本系統寫入」的格，供之後清空殘留答案。
+end note
+class BackfillPlan <<derived>> {
+  writes : map<cell, answer> (有效第1名的答案原文，純文字)
+  skipped : list<questionId> (無有效答案，格保持原狀)
+  clears : list<cell> (先前回填、現已無有效答案、格內容仍等於當初寫入)
+  keeps : list<cell> (先前回填但已被老師改過，不動)
+  overwrites : int (目標格原本有內容且與答案不同)
+}
+note right of BackfillPlan
+  由有效結果+作答格位置+先前回填紀錄推導；不另存；
+  只含作答格；全有或全無寫入。
 end note
 class PhaseChange <<append-only>> {
   phase : Answering | Ended
@@ -97,10 +192,45 @@ Room "1" *-- "0..*" PhaseChange : 階段變更紀錄
 Room "1" *-- "0..*" Submission : 送出紀錄
 Group "1" -- "0..*" Submission : 提交
 Submission ..> QuestionProgress : 推得
-Submission ..> ResultItem : rank=1 推得
+EffectiveResult ..> BackfillPlan : 有效第1名答案
+Question ..> BackfillPlan : 作答格位置(cell)
+BackfillPlan ..> BackfillRecord : 執行後記錄結果
+Room "1" *-- "0..*" BackfillRecord : 回填紀錄
+Submission ..> ExportRow : 每筆有效送出一列
+Submission ..> EffectiveResult : 原始名次+審核紀錄推得
+ReviewRecord ..> EffectiveResult : 駁回者略過、次順位遞補
+EffectiveResult ..> ResultItem : 有效第1名
+ReviewRecord ..> ExportRow : 審核狀態/理由/時間
+Room "1" *-- "0..*" ReviewRecord : 審核紀錄
+Room "1" o-- "0..1" FairnessRule : 公平規則(建立後固定)
+FairnessRule ..> EffectiveResult : 上限/冷卻讓位
 RoundResult "1" *-- "0..*" ResultItem
 QuestionProgress ..> GroupLeadTally : 統計
 Room "1" *-- "0..*" Question : 題目(依題號排序)
 Room "1" o-- "0..1" SheetSource : 學習單來源
+Room "1" *-- "0..*" QuestionBundle : 題組設定(建立後固定)
+QuestionBundle "0..1" o-- "2..*" Question : 綁定相鄰題目
+QuestionBundle "1" -- "0..*" Submission : 整組一次送出
 Room "1" *-- "0..*" Group : 包含\n(組名於房間內唯一)
+class ProjectorView <<derived, read-only>> {
+  status : Open | Closed (Closed 時顯示「房間已結束」並保留最後內容)
+  phase : Waiting | Answering | Ended
+  roomCode : string
+  groups : string[] (等待搶答時顯示)
+  questionStates : (unitId, 尚無組別送出 | 已有組別送出)[] (搶答中，匿名)
+  winners : (unitId, winnerGroup, answer)[] (結算後，與 RoundResult 同一份)
+  scoreboard : GroupScore[] (已結算輪次累計，各階段皆有)
+}
+class GroupScore <<derived>> {
+  groupName : string
+  score : int (已結算各輪取得題數累計；題組N題計N)
+  rank : int (同分並列)
+}
+note right of ProjectorView
+  只含「全班公開」內容；搶答中不含組名/答案/名次/時間/讓位；
+  無任何控制動作；不計為組別；倒數動畫由開始搶答時的一次性 countdown 事件觸發，晚連線不補播。
+end note
+EffectiveResult ..> GroupScore : 各輪有效結果累計
+GroupScore "0..*" --o "1" ProjectorView
+Room "1" ..> "0..*" ProjectorView : 以投影憑證開啟
 @enduml

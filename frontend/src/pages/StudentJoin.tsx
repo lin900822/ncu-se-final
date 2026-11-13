@@ -5,6 +5,8 @@ import {
   clearStudentJoin,
   loadStudentJoin,
   saveStudentJoin,
+  type BundleItem,
+  type FairnessRule,
   type QuestionItem,
   type RoomPhase,
 } from '../lib/api'
@@ -22,6 +24,8 @@ export default function StudentJoin() {
   const [phase, setPhase] = useState<View>(saved.current ? 'joining' : 'form')
   const [error, setError] = useState('')
   const [result, setResult] = useState<ResultData | null>(null)
+  // 老師審核後更新結果（Step 9）：結果頁顯示「老師已更新結果」；重連、新一輪、結束房間時清除
+  const [resultUpdated, setResultUpdated] = useState(false)
   const [joinedName, setJoinedName] = useState('')
   const [joinedCode, setJoinedCode] = useState('')
   const [notice, setNotice] = useState('')
@@ -34,6 +38,12 @@ export default function StudentJoin() {
   const [submitted, setSubmitted] = useState<Record<string, string>>({})
   const [othersSubmitted, setOthersSubmitted] = useState<string[]>([])
   const [errors, setErrors] = useState<Record<string, string>>({})
+  // 題組（Step 7）：設定由伺服器下發；錯誤依題組顯示
+  const [bundles, setBundles] = useState<BundleItem[]>([])
+  const bundlesRef = useRef<BundleItem[]>([])
+  const [bundleErrors, setBundleErrors] = useState<Record<string, string>>({})
+  // 公平規則（Step 11，公開）：只含上限與冷卻兩個數字；等待搶答階段顯示說明
+  const [fairness, setFairness] = useState<FairnessRule | null>(null)
   const lastRound = useRef(0)
   const roomCodeRef = useRef('')
   const activeRef = useRef(active)
@@ -52,7 +62,9 @@ export default function StudentJoin() {
     setSubmitted({})
     setOthersSubmitted([])
     setErrors({})
+    setBundleErrors({})
     setResult(null)
+    setResultUpdated(false)
   }, [])
 
   // 後端階段為唯一事實來源；round 增加（新一輪開始）才清空填空格與草稿，同輪重連不清空
@@ -64,6 +76,7 @@ export default function StudentJoin() {
       setSubmitted({})
       setOthersSubmitted([])
       setErrors({})
+      setBundleErrors({})
       if (roomCodeRef.current) clearDraft(roomCodeRef.current)
     }
   }, [])
@@ -79,11 +92,15 @@ export default function StudentJoin() {
   const onMessage = useCallback((msg: Record<string, unknown>) => {
     if (msg.type === 'phase_changed') {
       applyPhase(msg.phase as RoomPhase, msg.round as number)
-      if (msg.phase === 'Answering') setResult(null) // 新一輪開始：離開結果頁
+      if (msg.phase === 'Answering') {
+        setResult(null) // 新一輪開始：離開結果頁
+        setResultUpdated(false)
+      }
       if (msg.phase !== 'Answering') setTexts({}) // 結束搶答後隱藏題目文字
     } else if (msg.type === 'round_result') {
       // 結算後公布：每題只有第一名的組別與答案
       setResult({ round: msg.round as number, results: msg.results as ResultData['results'] })
+      setResultUpdated(msg.reviewed === true)
     } else if (msg.type === 'submitted') {
       // 同組任一視窗送出（含自己）：該題變「已送出」，內容以伺服器為準
       const qid = msg.questionId as string
@@ -94,6 +111,22 @@ export default function StudentJoin() {
         const { [qid]: _removed, ...rest } = prev
         return rest
       })
+    } else if (msg.type === 'bundle_submitted') {
+      // 同組任一視窗送出題組（含自己）：整張卡片一次變「已送出」，內容以伺服器為準
+      const bid = msg.bundleId as string
+      const answers = (msg.answers as Record<string, string>) ?? {}
+      setSubmitted((prev) => ({ ...prev, ...answers }))
+      setValues((prev) => ({ ...prev, ...answers }))
+      setBundleErrors((prev) => {
+        const { [bid]: _removed, ...rest } = prev
+        return rest
+      })
+    } else if (msg.type === 'bundle_hint') {
+      // 匿名提示：只知道「這個題組有組別送出」，以成員題目記錄（與重連時的 submittedByOthers 一致）
+      if ((msg.round as number) >= lastRound.current) {
+        const b = bundlesRef.current.find((x) => x.id === msg.bundleId)
+        if (b) setOthersSubmitted((prev) => [...new Set([...prev, ...b.questionIds])])
+      }
     } else if (msg.type === 'question_submitted') {
       // 匿名提示：只知道「這題有組別送出」，不含組名、內容、數量
       if ((msg.round as number) >= lastRound.current) {
@@ -115,6 +148,9 @@ export default function StudentJoin() {
       if (draft) lastRound.current = draft.round
       if (draft && draft.round === round) setValues(draft.values)
       setQuestions((msg.questions as QuestionItem[]) ?? [])
+      bundlesRef.current = (msg.bundles as BundleItem[]) ?? []
+      setFairness((msg.fairness as FairnessRule | null | undefined) ?? null)
+      setBundles(bundlesRef.current)
       setTexts((msg.texts as Record<string, string>) ?? {}) // 搶答中以外一律為空
       applyPhase(msg.phase as RoomPhase, round)
       // 伺服器還原本組本輪已送出的內容與他組匿名提示（須在 applyPhase 之後，避免被輪次清空覆蓋）
@@ -123,6 +159,7 @@ export default function StudentJoin() {
       setValues((prev) => ({ ...prev, ...mine }))
       setOthersSubmitted((msg.submittedByOthers as string[]) ?? [])
       setResult((msg.result as ResultData | null) ?? null) // 後端還原（重連／晚加入）
+      setResultUpdated(false)
       setJoinedName(group.name)
       setJoinedCode(room.code)
       if (a) saveStudentJoin({ code: room.code, name: group.name })
@@ -139,6 +176,12 @@ export default function StudentJoin() {
       setPhase('closed')
     } else if (msg.type === 'error') {
       const errCode = msg.code as string
+      if (msg.bundleId !== undefined) {
+        // 題組送出被拒絕（未填完、過長、非搶答中…）：顯示在該題組卡片，連線維持
+        const bid = msg.bundleId as string
+        setBundleErrors((prev) => ({ ...prev, [bid]: msg.message as string }))
+        return
+      }
       if (msg.questionId !== undefined) {
         // 送出被拒絕（空白、過長、非搶答中…）：只顯示在該題，連線維持
         const qid = msg.questionId as string
@@ -168,6 +211,18 @@ export default function StudentJoin() {
       return rest
     })
     send({ type: 'submit', questionId: id, answer: values[id] ?? '' })
+  }
+
+  // 送出題組：只送該題組成員的答案；不做樂觀更新，等伺服器回 bundle_submitted
+  function onSubmitBundle(bundleId: string) {
+    const b = bundles.find((x) => x.id === bundleId)
+    if (!b) return
+    setBundleErrors((prev) => {
+      const { [bundleId]: _removed, ...rest } = prev
+      return rest
+    })
+    const answers = Object.fromEntries(b.questionIds.map((id) => [id, values[id] ?? '']))
+    send({ type: 'submit_bundle', bundleId, answers })
   }
 
   function onSubmit(e: React.FormEvent) {
@@ -214,8 +269,28 @@ export default function StudentJoin() {
           {roomPhase === 'Answering' ? '搶答中' : roomPhase === 'Ended' ? '搶答已結束' : '等待搶答'}
           {status !== 'open' && '（重新連線中…）'}
         </p>
+        {roomPhase === 'Waiting' && (
+          <p className="rounded bg-slate-50 p-2 text-sm text-slate-600">
+            老師可審核答案；答案被判定無效時，名次由次順位組別遞補。
+          </p>
+        )}
+        {roomPhase === 'Waiting' && fairness !== null && (
+          <div className="space-y-1 rounded bg-slate-50 p-2 text-sm text-slate-600">
+            {fairness.winCap !== null && (
+              <p>每組最多搶得 {fairness.winCap} 題；達上限後，其後的題目會讓位給其他組別。</p>
+            )}
+            {fairness.cooldownSeconds > 0 && (
+              <p>搶得一題後，{fairness.cooldownSeconds} 秒內送出的答案不能再搶得題目。</p>
+            )}
+          </div>
+        )}
+        {roomPhase === 'Ended' && result && resultUpdated && (
+          <p role="status" className="rounded bg-amber-50 p-2 text-sm font-semibold text-amber-800">
+            老師已更新結果
+          </p>
+        )}
         {roomPhase === 'Ended' && result && (
-          <ResultBoard result={result} questions={questions} myGroup={joinedName} />
+          <ResultBoard result={result} questions={questions} myGroup={joinedName} bundles={bundles} />
         )}
         {!(roomPhase === 'Ended' && result) && questions.length > 0 && (
           <QuestionFields
@@ -226,7 +301,10 @@ export default function StudentJoin() {
             submitted={submitted}
             othersSubmitted={othersSubmitted}
             errors={errors}
+            bundles={bundles}
+            bundleErrors={bundleErrors}
             onSubmit={onSubmitAnswer}
+            onSubmitBundle={onSubmitBundle}
             onChange={onChangeAnswer}
           />
         )}
