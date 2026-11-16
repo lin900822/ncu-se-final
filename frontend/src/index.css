@@ -1,1 +1,12 @@
 @import "tailwindcss";
+
+/* 投影視圖倒數動畫（Step 12）：放大淡入；偏好減少動態效果時改為無動畫的逐秒靜態數字 */
+@keyframes projector-pop {
+  from { transform: scale(0.4); opacity: 0; }
+  60% { transform: scale(1.1); opacity: 1; }
+  to { transform: scale(1); opacity: 1; }
+}
+.projector-count { animation: projector-pop 0.7s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .projector-count { animation: none; }
+}

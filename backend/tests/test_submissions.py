@@ -154,7 +154,7 @@ def test_teacher_receives_submission_event_with_server_time(client, use_sheet):
     try:
         submit(ws, "1", "CPU")
         m = tws.receive_json()
-        assert set(m.keys()) == {"type", "group", "questionId", "answer", "round", "submittedAt", "rank"}
+        assert set(m.keys()) == {"type", "group", "questionId", "answer", "round", "submittedAt", "rank", "bundleId"}
         assert m["type"] == "submission" and m["group"] == "第 1 組" and m["answer"] == "CPU"
         assert m["submittedAt"].endswith("Z")  # 伺服器 UTC
     finally:
@@ -177,7 +177,7 @@ def test_snapshot_submissions_all_rounds_and_recover(client, use_sheet):
             subs = snap["room"]["submissions"]
             assert [(s["round"], s["answer"]) for s in subs] == [(1, "CPU"), (2, "第二輪")]
             assert all(
-                set(s.keys()) == {"group", "questionId", "answer", "round", "submittedAt", "rank"}
+                set(s.keys()) == {"group", "questionId", "answer", "round", "submittedAt", "rank", "bundleId"}
                 for s in subs
             )
         finally:

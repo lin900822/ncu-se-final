@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 
 # 本步驟只讀取試算表（最小權限）；回填步驟才改為 .../auth/spreadsheets
 SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly"
+# 回填寫入（Step 10）才使用讀寫範圍；讀取一律維持唯讀（最小權限）
+SHEETS_WRITE_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 

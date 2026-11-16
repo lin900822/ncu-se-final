@@ -1,12 +1,24 @@
 """房間服務：建立、恢復、結束、活動時間。"""
-from ..models import Room, err, iso, question_public, question_texts, utcnow
+from ..models import (
+    FairnessRule,
+    Room,
+    backfill_public,
+    bundle_public,
+    err,
+    fairness_public,
+    iso,
+    question_public,
+    question_texts,
+    utcnow,
+)
 from ..normalize import normalize_room_code
 from ..realtime import realtime
 from ..store import store
-from . import ranking, results
+from . import bundles as bundles_service
+from . import effective, projector, ranking, results
 
 
-def create_room(sheet=None) -> Room:
+def create_room(sheet=None, bundles=None, fairness=None) -> Room:
     now = utcnow()
     code = store.generate_room_code()
     room = Room(
@@ -15,10 +27,16 @@ def create_room(sheet=None) -> Room:
         last_activity_at=now,
         teacher_token=store.generate_token(),
         recovery_code=store.generate_recovery_code(),
+        projector_key=store.generate_token(),  # 唯讀投影憑證（Step 12），與老師憑證不同
     )
     if sheet is not None:
         room.sheet = sheet.source
         room.questions = list(sheet.questions)
+        # 題組隨房間建立確定，之後不可修改（Step 7）
+        room.bundles = list(bundles or [])
+        room.bundle_of = bundles_service.index_bundles(room.bundles)
+        # 公平規則（Step 11）同樣隨房間確定，之後不可修改
+        room.fairness = fairness or FairnessRule()
     store.rooms[code] = room
     store.recovery_index[room.recovery_code] = code
     return room
@@ -59,6 +77,7 @@ async def close_room(room: Room, reason: str) -> None:
     room.status = "Closed"
     room.closed_reason = reason  # type: ignore[assignment]
     room.closed_at = utcnow()
+    await projector.publish(room)  # 投影視圖先收到 status=Closed 的最終狀態（Step 12）
     await realtime.close_room_connections(room.code, reason)
 
 
@@ -77,6 +96,7 @@ def snapshot(room: Room) -> dict:
             "round": room.round,
             "sheetTitle": room.sheet.sheet_title if room.sheet else None,
             "questions": [question_public(q) for q in room.questions],
+            "bundles": [bundle_public(b) for b in room.bundles],
             "texts": question_texts(room),  # 老師已驗證，可見完整題目文字
             # 老師已驗證：可見所有輪次的送出紀錄（組別、題目、內容、伺服器時間）
             "submissions": [
@@ -87,9 +107,15 @@ def snapshot(room: Room) -> dict:
                     "round": s.round,
                     "submittedAt": iso(s.submitted_at),
                     "rank": s.rank,
+                    "bundleId": s.bundle_id,
                 }
                 for s in room.submissions
             ],
+            "reviews": [effective.review_public(r) for r in room.reviews],  # 僅老師（Step 9）
+            "backfills": [backfill_public(r) for r in room.backfills],  # 僅老師（Step 10）
+            "fairness": fairness_public(room.fairness),  # 規則本身（Step 11）
+            "projectorKey": room.projector_key,  # 僅老師 snapshot（Step 12）
+            "sheetUrl": room.sheet.url if room.sheet else None,  # 僅老師；回填後「開啟試算表」連結
             "board": ranking.build_board(room),
             "result": results.build_result(room),
         },

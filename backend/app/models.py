@@ -44,6 +44,22 @@ def question_texts(room: "Room") -> dict[str, str]:
 
 
 @dataclass
+class QuestionBundle:
+    """題組：老師建立房間時綁定、須一起送出的相鄰題目（房間層級的送出單位設定）。
+
+    題目本身仍為扁平清單、不因綁定而改變（原則 I）；建立後不可修改。
+    """
+
+    id: str  # B1、B2…（依第一個成員在題目清單中的位置編號）
+    question_ids: list[str]  # 依題目順序，≥ 2 題
+
+
+def bundle_public(b: QuestionBundle) -> dict:
+    """題組設定不含任何作答內容，可給所有學生。"""
+    return {"id": b.id, "questionIds": list(b.question_ids)}
+
+
+@dataclass
 class SheetSource:
     url: str
     spreadsheet_id: str
@@ -55,7 +71,10 @@ class SheetSource:
 
 @dataclass
 class Submission:
-    """組別對某題的一次有效送出（僅追加）；時間由後端 UTC 產生，客戶端不得提供。"""
+    """組別對某題的一次有效送出（僅追加）；時間由後端 UTC 產生，客戶端不得提供。
+
+    題組送出時，每個成員題目各一筆，共用 seq／submitted_at／rank，並帶 bundle_id。
+    """
 
     group_name: str
     normalized_name: str
@@ -64,7 +83,8 @@ class Submission:
     answer: str  # 非空白且 ≤ 500 字元，保存原文
     submitted_at: datetime  # 後端 UTC，僅供顯示，不參與排序判定
     seq: int  # 房間內單調遞增處理序（仲裁依據），建立後不可改寫
-    rank: int  # 同一 (round, question_id) 的名次（1 起算），建立後不可改寫
+    rank: int  # 同一 (round, unitId) 的名次（1 起算），建立後不可改寫
+    bundle_id: str | None = None  # 題組送出時為題組 id；單題送出為 None
 
 
 @dataclass
@@ -75,6 +95,61 @@ class PhaseChange:
     round: int
     changed_at: datetime
     by: str = "Teacher"
+
+
+@dataclass
+class ReviewRecord:
+    """老師對某組別在某搶答單位本輪送出的一次駁回或恢復（僅追加、不修改、不刪除）。
+
+    不改動 Submission 的答案／時間／原始名次；有效狀態由最後一筆紀錄推導（services/effective.py）。
+    """
+
+    round: int
+    unit_id: str  # 題組 id（如 B1）或題目 id
+    group_name: str
+    normalized_name: str
+    action: Literal["Invalid", "Valid"]  # 駁回 | 恢復
+    reason: str  # 必填；strip 後非空、≤ 100 字元
+    reviewed_at: datetime  # 後端 UTC
+    by: str = "Teacher"
+
+
+@dataclass
+class BackfillRecord:
+    """老師每一次「確認回填」進入寫入流程的嘗試（成功或失敗各一筆；僅追加、不修改、不刪除）。
+
+    written／cleared 含儲存格位置與答案文字，只供伺服器推導「先前由本系統寫入的格」，**不外送**；
+    對外只用 backfill_public()（格數與結果）。
+    """
+
+    round: int
+    at: datetime  # 後端 UTC
+    result: Literal["Success", "Failed"]
+    written: dict[str, str] = field(default_factory=dict)  # {作答格位址: 寫入的文字}，成功才有內容
+    cleared: list[str] = field(default_factory=list)
+    skipped_count: int = 0
+    kept_count: int = 0  # 先前寫入但已被老師改過、保留不動的格數
+    reason: str | None = None  # 失敗時的錯誤碼
+    by: str = "Teacher"
+
+
+@dataclass
+class FairnessRule:
+    """公平規則（Step 11）：建立房間時確定、之後不可修改；無題目的房間只能是預設值。
+
+    win_cap：每組在一輪中最多搶得幾題（None＝不限制）；
+    cooldown_seconds：組別每次取得題目後的冷卻秒數（0＝不套用）。
+    """
+
+    win_cap: int | None = None
+    cooldown_seconds: int = 0
+
+
+def fairness_public(f: "FairnessRule") -> dict | None:
+    """規則本身可給所有學生（不含任何作答內容）；預設（不限制）回傳 None。"""
+    if f.win_cap is None and f.cooldown_seconds == 0:
+        return None
+    return {"winCap": f.win_cap, "cooldownSeconds": f.cooldown_seconds}
 
 
 @dataclass
@@ -96,9 +171,21 @@ class Room:
     # 去重索引：(round, normalized_name, question_id) -> Submission（由 submissions 推得）
     submission_index: dict[tuple[int, str, str], Submission] = field(default_factory=dict)
     questions: list[Question] = field(default_factory=list)
-    # 順位仲裁（Step 5）：處理序計數與每題每輪已排名數（皆由 submissions 推得）
+    # 順位仲裁（Step 5）：處理序計數與每個搶答單位每輪已排名數（皆由 submissions 推得）
+    # rank_counts 鍵為 (round, unitId)；unitId＝題目所屬題組 id，未綁定為題目 id
     next_seq: int = 1
     rank_counts: dict[tuple[int, str], int] = field(default_factory=dict)
+    # 題組（Step 7）：建立房間時確定、之後不可修改；bundle_of 為 questionId -> bundleId（由 bundles 推得）
+    bundles: list[QuestionBundle] = field(default_factory=list)
+    bundle_of: dict[str, str] = field(default_factory=dict)
+    # 人工審核（Step 9）：僅追加的審核紀錄；有效結果由原始名次＋審核紀錄推導，不另存
+    reviews: list[ReviewRecord] = field(default_factory=list)
+    # 回填試算表（Step 10）：僅追加的回填紀錄；先前寫入的格與回填計畫皆由紀錄與現況推導
+    backfills: list[BackfillRecord] = field(default_factory=list)
+    # 公平規則（Step 11）：建立房間時確定，之後不可修改
+    fairness: FairnessRule = field(default_factory=FairnessRule)
+    # 唯讀投影憑證（Step 12）：建立房間時產生、之後固定；只能開啟投影視圖，不能執行任何操作
+    projector_key: str = ""
 
 
 class AppError(Exception):
@@ -139,8 +226,43 @@ _ERRORS = {
     "SHEET_QUESTIONS_INVALID": ("題號有問題，請修正試算表", 422),
     "SHEET_TOO_MANY_QUESTIONS": ("題數超過上限（50）", 422),
     "SHEET_CHANGED": ("試算表內容已變動，請重新讀取並確認", 409),
+    "REVIEW_NOT_ALLOWED": ("目前不開放審核，請於搶答結束後審核最新一輪", 400),
+    "REASON_REQUIRED": ("請填寫理由", 400),
+    "REASON_TOO_LONG": ("理由最多 100 字元", 400),
+    "UNIT_NOT_FOUND": ("找不到該題或題組", 400),
+    "REVIEW_TARGET_NOT_FOUND": ("找不到該組在此題的送出", 400),
+    "FAIRNESS_INVALID": ("公平規則設定有誤", 400),
+    "BACKFILL_NOT_ALLOWED": ("目前不開放回填，請於搶答結束後回填最新一輪", 400),
+    "BACKFILL_NO_SHEET": ("此房間未綁定試算表，無法回填", 400),
+    "BACKFILL_NOTHING": ("沒有可回填的答案", 400),
+    "BACKFILL_IN_PROGRESS": ("回填進行中，請稍候", 409),
+    "SHEET_STRUCTURE_CHANGED": ("試算表已變動，請重新建立房間後再回填", 409),
+    "SHEET_NOT_EDITABLE": ("無法寫入，請將試算表共用給機器人並設為編輯者", 403),
+    "SHEET_QUOTA": ("試算表服務使用額度已滿，請稍後再試", 429),
+    "SHEET_WRITE_FAILED": ("寫入試算表失敗，未做任何變更", 502),
+    "NO_RECORDS": ("尚無送出紀錄可匯出", 404),
+    "RECORDS_GONE": ("紀錄已不存在，請於活動結束後盡快匯出", 404),
+    "BUNDLES_INVALID": ("題組設定有誤", 400),
+    "BUNDLE_NOT_FOUND": ("找不到該題組", 400),
+    "BUNDLE_INCOMPLETE": ("請填完題組內所有題目", 400),
+    "QUESTION_IN_BUNDLE": ("此題屬於題組，請整組一起送出", 400),
     "BAD_REQUEST": ("請求格式錯誤", 400),
 }
+
+
+def backfill_public(r: BackfillRecord) -> dict:
+    """老師端顯示用的回填紀錄：只含格數與結果，**不含儲存格位置與答案內容**。"""
+    return {
+        "round": r.round,
+        "at": iso(r.at),
+        "written": len(r.written),
+        "skipped": r.skipped_count,
+        "cleared": len(r.cleared),
+        "kept": r.kept_count,
+        "result": r.result,
+        "reason": r.reason,
+        "message": _ERRORS[r.reason][0] if r.reason in _ERRORS else None,
+    }
 
 
 def err(code: str, details: dict | None = None) -> AppError:

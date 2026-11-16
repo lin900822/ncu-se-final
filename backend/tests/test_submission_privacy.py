@@ -111,7 +111,15 @@ def test_broadcast_call_sites_are_restricted():
             others.append((rel, m.group(0)))
     # 向所有學生廣播只出現在階段服務（階段與題目文字）
     assert set(students) == {"services/phase.py"}
-    # 向他組廣播只送匿名提示事件
-    assert len(others) == 1
-    rel, call = others[0]
-    assert rel == "api/ws.py" and "to_other_groups_event" in call
+    # 向他組廣播只送匿名提示事件（單題：to_other_groups_event；題組：to_bundle_hint_event）
+    assert len(others) == 2
+    assert all(rel == "api/ws.py" for rel, _ in others)
+    assert sorted(
+        "to_other_groups_event" if "to_other_groups_event" in call else
+        "to_bundle_hint_event" if "to_bundle_hint_event" in call else call
+        for _, call in others
+    ) == ["to_bundle_hint_event", "to_other_groups_event"]
+    # 題組匿名提示只含題組識別碼與輪次
+    sub_src = (APP / "services" / "submissions.py").read_text(encoding="utf-8")
+    hint = sub_src.split("def to_bundle_hint_event")[1].split("\ndef ")[0]
+    assert "answer" not in hint and "group_name" not in hint and "rank" not in hint
