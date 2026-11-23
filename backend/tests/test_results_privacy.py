@@ -19,14 +19,13 @@ def dumps(o):
 def test_no_result_before_end_and_only_winners_after(client, use_sheet):
     code, token = make_started_room(client)
     a1, wa1, ja1 = join_student(client, code, "甲組")
-    a2, wa2, _ = join_student(client, code, "甲組")
     b, wb, jb = join_student(client, code, "乙組")
     c, wc, jc = join_student(client, code, "丙組")
     try:
         wa1.send_json({"type": "submit", "questionId": "1", "answer": "甲答案"})
         wb.send_json({"type": "submit", "questionId": "1", "answer": "乙答案"})
         wc.send_json({"type": "submit", "questionId": "2", "answer": "丙答案"})
-        before = {n: flush(w) for n, w in [("a1", wa1), ("a2", wa2), ("b", wb), ("c", wc)]}
+        before = {n: flush(w) for n, w in [("a1", wa1), ("b", wb), ("c", wc)]}
         for n, msgs in before.items():
             t = dumps(msgs)
             assert "round_result" not in t and "winnerGroup" not in t, n
@@ -35,7 +34,7 @@ def test_no_result_before_end_and_only_winners_after(client, use_sheet):
         # 公布
         client.post(f"/api/rooms/{code}/phase/end", headers=auth(token))
         after = {}
-        for n, w in [("a1", wa1), ("a2", wa2), ("b", wb), ("c", wc)]:
+        for n, w in [("a1", wa1), ("b", wb), ("c", wc)]:
             after[n] = flush(w)
         res = [m for m in after["c"] if m["type"] == "round_result"][0]
         # (b) 非第一名的乙組與其答案不出現在任何學生收到的內容
@@ -59,7 +58,7 @@ def test_no_result_before_end_and_only_winners_after(client, use_sheet):
         msgs = flush(wa1)
         assert any(m.get("type") == "phase_changed" and m["phase"] == "Answering" for m in msgs)
     finally:
-        for x in (a1, a2, b, c):
+        for x in (a1, b, c):
             x.__exit__(None, None, None)
 
 

@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from app.store import store
 
-from .conftest import auth, drain, join_student, make_started_room
+from .conftest import assert_second_window_rejected, auth, drain, join_student, make_started_room
 
 
 def submit(ws, qid, answer, **extra):
@@ -114,28 +114,17 @@ def test_new_round_resets_but_keeps_history(client, use_sheet):
         cm.__exit__(None, None, None)
 
 
-def test_simultaneous_submit_from_two_windows_one_record(client, use_sheet):
+def test_second_window_rejected_so_only_one_record(client, use_sheet):
     code, _ = make_started_room(client)
     c1, w1, _ = join_student(client, code, "第 1 組")
-    c2, w2, _ = join_student(client, code, "第 1 組")
     try:
-        barrier = threading.Barrier(2)
-
-        def go(ws, ans):
-            barrier.wait()
-            ws.send_json({"type": "submit", "questionId": "2", "answer": ans})
-
-        ts = [threading.Thread(target=go, args=(w1, "甲")), threading.Thread(target=go, args=(w2, "乙"))]
-        [t.start() for t in ts]
-        [t.join() for t in ts]
-        r1, r2 = w1.receive_json(), w2.receive_json()
+        assert_second_window_rejected(client, code, "第 1 組")  # 同組無法用第二視窗搶送
+        assert submit(w1, "2", "甲")["type"] == "submitted"
+        assert submit(w1, "2", "乙")["answer"] == "甲"  # 重複送出回傳先前接受的那一筆
         subs = store.rooms[code].submissions
-        assert len(subs) == 1
-        # 兩個視窗最後看到的都是先被接受的那一筆
-        assert r1["answer"] == r2["answer"] == subs[0].answer
+        assert len(subs) == 1 and subs[0].answer == "甲"
     finally:
         c1.__exit__(None, None, None)
-        c2.__exit__(None, None, None)
 
 
 # ---- US4：老師端查看 ----

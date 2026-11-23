@@ -21,19 +21,18 @@ def _teacher(client, code, token):
 
 
 def _play(client):
-    """3 組：第 1 組先送 Q1、第 2 組後送 Q1、第 3 組送 Q2；第 1 組另開第二視窗。"""
+    """3 組：第 1 組先送 Q1、第 2 組後送 Q1、第 3 組送 Q2；每組一個視窗。"""
     code, token = make_started_room(client)
     c1, w1, _ = join_student(client, code, "第 1 組")
-    c1b, w1b, _ = join_student(client, code, "第 1 組")
     c2, w2, _ = join_student(client, code, "第 2 組")
     c3, w3, _ = join_student(client, code, "第 3 組")
     submit(w1, "1", "CPU")
-    w1b.receive_json(), w2.receive_json(), w3.receive_json()
+    w2.receive_json(), w3.receive_json()
     submit(w2, "1", "GPU")
-    w1.receive_json(), w1b.receive_json(), w3.receive_json()
+    w1.receive_json(), w3.receive_json()
     submit(w3, "2", "RAM")
-    w1.receive_json(), w1b.receive_json(), w2.receive_json()
-    return code, token, [(c1, w1), (c1b, w1b), (c2, w2), (c3, w3)]
+    w1.receive_json(), w2.receive_json()
+    return code, token, [(c1, w1), (c2, w2), (c3, w3)]
 
 
 def _close(conns):
@@ -49,7 +48,7 @@ def test_round_result_to_all_students(client, use_sheet):
         for _, ws in conns:
             assert ws.receive_json()["type"] == "phase_changed"
             msgs.append(ws.receive_json())
-        assert all(m == msgs[0] for m in msgs)  # 每個視窗（含同組、他組）內容相同
+        assert all(m == msgs[0] for m in msgs)  # 每個視窗（各組）內容相同
         m = msgs[0]
         assert m["type"] == "round_result" and m["round"] == 1
         res = m["results"]

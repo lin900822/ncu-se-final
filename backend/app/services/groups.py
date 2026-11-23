@@ -7,13 +7,13 @@ from ..realtime import realtime
 from . import projector, rooms
 
 
-MAX_WINDOWS_PER_GROUP = 10
+MAX_WINDOWS_PER_GROUP = 1
 
 
 def join(code: str, raw_name: str, ws: WebSocket) -> tuple[Room, Group, bool, bool, bool]:
     """同步（無 await）完成驗證與標記。
 
-    同組可有多個視窗（Step 4 起不再拒絕「該組目前在線」），每組視窗上限 10。
+    同組可有多個視窗（Step 4 起不再拒絕「該組目前在線」），每組視窗上限 1（單一視窗）。
     回傳 (room, group, rejoined, is_new, was_online)。
     """
     room = rooms.get_room(code)

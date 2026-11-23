@@ -7,6 +7,7 @@ from app.store import store
 
 from .conftest import (
     SHEET_URL,
+    assert_second_window_rejected,
     auth,
     get_projector_key,
     join_student,
@@ -159,8 +160,7 @@ def test_new_group_updates_every_projector_but_reconnect_does_not(client, use_sh
         cm, ws, _ = join_student(client, code, "第 1 組")
         for _c, pws, _ in (p1, p2):
             assert pws.receive_json()["groups"] == ["第 1 組"]
-        cm2, _w2, _ = join_student(client, code, "第 1 組")  # 同組第二視窗：不是新組別
-        cm2.__exit__(None, None, None)
+        assert_second_window_rejected(client, code, "第 1 組")  # 同組第二視窗被拒絕，投影名單不變
         cm3, _w3, _ = join_student(client, code, "第 2 組")
         for _c, pws, _ in (p1, p2):
             assert pws.receive_json()["groups"] == ["第 1 組", "第 2 組"]  # 下一則就是第 2 組的名單

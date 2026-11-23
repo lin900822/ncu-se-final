@@ -20,20 +20,52 @@ FIELDS = (
 TIMEOUT_SECONDS = 10
 
 
-def _default_token_provider(config: SheetsConfig, scope: str = SHEETS_SCOPE) -> Callable[[], str]:
-    creds = None
+_creds_cache: dict[tuple[str, str], object] = {}
 
+
+def _ipv4_transport() -> httpx.AsyncHTTPTransport:
+    """只走 IPv4：部分網路的 IPv6 到 Google 不通，Python 又沒有 Happy Eyeballs，會卡到逾時。"""
+    return httpx.AsyncHTTPTransport(local_address="0.0.0.0")
+
+
+def _new_http() -> httpx.AsyncClient:
+    return httpx.AsyncClient(timeout=TIMEOUT_SECONDS, transport=_ipv4_transport())
+
+
+def _ipv4_auth_request():
+    """google-auth 用 requests 取 token：綁定 IPv4 來源位址並加上逾時。"""
+    import requests
+    from google.auth.transport.requests import Request
+    from requests.adapters import HTTPAdapter
+
+    class IPv4Adapter(HTTPAdapter):
+        def init_poolmanager(self, *args, **kwargs):
+            kwargs["source_address"] = ("0.0.0.0", 0)
+            super().init_poolmanager(*args, **kwargs)
+
+    session = requests.Session()
+    session.mount("https://", IPv4Adapter())
+
+    class TimedRequest(Request):
+        def __call__(self, url, method="GET", body=None, headers=None, timeout=TIMEOUT_SECONDS, **kw):
+            return super().__call__(url, method, body, headers, timeout=timeout, **kw)
+
+    return TimedRequest(session=session)
+
+
+def _default_token_provider(config: SheetsConfig, scope: str = SHEETS_SCOPE) -> Callable[[], str]:
     def provider() -> str:
-        nonlocal creds
-        from google.auth.transport.requests import Request
         from google.oauth2 import service_account
 
+        key = (config.key_file, scope)
+        creds = _creds_cache.get(key)
         if creds is None:
             creds = service_account.Credentials.from_service_account_file(
                 config.key_file, scopes=[scope]
             )
-        if not creds.valid:
-            creds.refresh(Request())
+            _creds_cache[key] = creds
+        if not creds.valid:  # 快取憑證：token 有效期內不重複向 Google 換
+            creds.refresh(_ipv4_auth_request())
         return creds.token
 
     return provider
@@ -66,7 +98,7 @@ class SheetsClient:
         if self.config is None:
             raise err("SHEETS_NOT_CONFIGURED")
         token = await self._token()
-        http = self._http or httpx.AsyncClient(timeout=TIMEOUT_SECONDS)
+        http = self._http or _new_http()
         try:
             resp = await http.get(
                 API.format(id=spreadsheet_id),
@@ -115,7 +147,7 @@ class SheetsClient:
                 }
             )
         token = await self._token(SHEETS_WRITE_SCOPE)
-        http = self._http or httpx.AsyncClient(timeout=TIMEOUT_SECONDS)
+        http = self._http or _new_http()
         try:
             resp = await http.post(
                 API.format(id=spreadsheet_id) + ":batchUpdate",

@@ -1,7 +1,7 @@
 """順位仲裁：名次依後端處理序決定（原則 II）。"""
 from app.store import store
 
-from .conftest import auth, drain, join_student, make_started_room
+from .conftest import assert_second_window_rejected, auth, drain, join_student, make_started_room
 
 
 def submit(ws, qid, answer, **extra):
@@ -45,17 +45,14 @@ def test_ranks_follow_arrival_order(client, use_sheet):
 def test_duplicates_and_rejections_do_not_take_ranks(client, use_sheet):
     code, _ = make_started_room(client)
     c1, w1, _ = join_student(client, code, "第 1 組")
-    c1b, w1b, _ = join_student(client, code, "第 1 組")
     c2, w2, _ = join_student(client, code, "第 2 組")
     try:
         submit(w1, "1", "CPU")
-        w1b.receive_json()  # 同組同步
         w2.receive_json()  # 匿名提示
         first = _subs(code)[0]
         for _ in range(9):
             submit(w1, "1", "again")  # 重複
-        w1b.send_json({"type": "submit", "questionId": "1", "answer": "x"})  # 同組另一視窗
-        assert w1b.receive_json()["answer"] == "CPU"
+        assert_second_window_rejected(client, code, "第 1 組")  # 同組另一視窗被拒絕，不會產生新紀錄
         for qid, ans in [("1", ""), ("1", "字" * 501), ("99", "x")]:
             assert submit(w2, qid, ans)["type"] == "error"
         assert len(_subs(code)) == 1 and _subs(code)[0] is first
@@ -63,7 +60,7 @@ def test_duplicates_and_rejections_do_not_take_ranks(client, use_sheet):
         assert submit(w2, "1", "GPU")["type"] == "submitted"
         assert [(s.rank, s.seq) for s in _subs(code)] == [(1, 1), (2, 2)]
     finally:
-        for c in (c1, c1b, c2):
+        for c in (c1, c2):
             c.__exit__(None, None, None)
 
 

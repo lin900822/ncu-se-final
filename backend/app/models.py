@@ -210,7 +210,7 @@ _ERRORS = {
     "UNAUTHORIZED": ("無權限操作此房間", 401),
     "NAME_REQUIRED": ("請填寫組名", 400),
     "NAME_TOO_LONG": ("組名最多 20 字元", 400),
-    "GROUP_WINDOWS_FULL": ("該組視窗數已達上限（10）", 409),
+    "GROUP_WINDOWS_FULL": ("該組已有視窗在線，每組只能開一個視窗", 409),
     "QUESTION_NOT_FOUND": ("找不到該題", 400),
     "ANSWER_EMPTY": ("請填寫答案", 400),
     "ANSWER_TOO_LONG": ("答案最多 500 字元", 400),

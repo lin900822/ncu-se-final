@@ -5,6 +5,7 @@
 - build_plan：由有效結果＋作答格位置＋先前寫入＋試算表現況，推導寫入／清空／保留／略過。
 回填只讀取結果，不改動任何送出、名次或審核紀錄（原則 II）；回填屬老師專屬（原則 III）。
 """
+import asyncio
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -166,6 +167,7 @@ async def _record_failure(room: Room, reason: str) -> None:
 
 # 進行中的回填（每房間一次只允許一個）；重啟後自然清空
 _running: set[str] = set()
+EXECUTE_TIMEOUT_SECONDS = 40  # 讀取＋寫入（含取 token）的整體上限，避免鎖被卡住的請求長期佔用
 
 
 async def execute(room: Room, round_no: int) -> dict:
@@ -175,7 +177,11 @@ async def execute(room: Room, round_no: int) -> dict:
         raise err("BACKFILL_IN_PROGRESS")
     _running.add(room.code)
     try:
-        return await _execute_locked(room, round_no)
+        try:
+            return await asyncio.wait_for(_execute_locked(room, round_no), EXECUTE_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            await _record_failure(room, "SHEET_TIMEOUT")
+            raise err("SHEET_TIMEOUT") from None
     finally:
         _running.discard(room.code)
 

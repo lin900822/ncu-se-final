@@ -3,7 +3,7 @@ import json
 
 from app.store import store
 
-from .conftest import join_student, make_ranked_room, post_review
+from .conftest import join_student, join_student_retry, make_ranked_room, post_review
 from .test_submission_privacy import flush
 
 UNIT = "1"
@@ -16,10 +16,8 @@ def _close(conns):
 
 
 def _setup(client):
-    """三組各一視窗（第 3 組另開第二視窗）、老師 WebSocket 已連線；已結束搶答並清空待讀訊息。"""
+    """三組各一視窗、老師 WebSocket 已連線；已結束搶答並清空待讀訊息。"""
     code, token, conns = make_ranked_room(client)
-    cm, ws, _ = join_student(client, code, "第 3 組")
-    conns.append((cm, ws))
     for _c, w in conns:
         flush(w)
     tcm = client.websocket_connect(f"/ws/teacher?token={token}&code={code}")
@@ -51,7 +49,7 @@ def test_all_student_windows_get_updated_result_and_teacher_matches(client, use_
         assert first["reviewed"] is True and first["round"] == 1
         q1 = {x["questionId"]: x for x in first["results"]}["1"]
         assert q1["winnerGroup"] == "第 2 組" and q1["answer"] == "ans-2"
-        assert all(g[0] == first for g in got)  # 每個視窗（含被駁回組、遞補組、同組第二視窗）內容完全相同
+        assert all(g[0] == first for g in got)  # 每個視窗（含被駁回組、遞補組）內容完全相同
         upd = _next_review_updated(t)
         assert upd["result"]["results"] == first["results"]  # 老師與學生一致（FR-016）
         assert {q["questionId"]: q for q in upd["board"]["questions"]}["1"]["leader"] == "第 2 組"
@@ -130,7 +128,8 @@ def test_rejoin_and_teacher_recovery_restore_reviewed_state(client, use_sheet):
     try:
         post_review(client, code, token, UNIT, "第 1 組", "invalid", "答案錯誤")
         broadcast = _round_results(flush(conns[1][1]))[-1]["results"]
-        cm, _ws, joined = join_student(client, code, "第 2 組")
+        conns[1][0].__exit__(None, None, None)  # 第 2 組唯一視窗關閉後重連
+        cm, _ws, joined = join_student_retry(client, code, "第 2 組")
         try:
             assert joined["result"]["results"] == broadcast  # 重連與廣播相同（SC-005）
         finally:
@@ -143,7 +142,7 @@ def test_rejoin_and_teacher_recovery_restore_reviewed_state(client, use_sheet):
         ]
         assert snap["result"]["results"] == broadcast
     finally:
-        _close(conns)
+        _close([conns[0], *conns[2:]])
 
 
 def test_student_cannot_send_review_messages(client, use_sheet):

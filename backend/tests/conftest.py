@@ -50,6 +50,29 @@ def join_student(client: TestClient, code: str, name: str):
     return cm, ws, msg
 
 
+def join_student_retry(client: TestClient, code: str, name: str, tries: int = 40):
+    """同組只能有一個視窗：舊視窗剛關閉時伺服器端清理是非同步的，被拒絕就稍等重試。"""
+    import time
+
+    for _ in range(tries):
+        cm, ws, msg = join_student(client, code, name)
+        if msg.get("type") != "error":
+            return cm, ws, msg
+        assert msg["code"] == "GROUP_WINDOWS_FULL", msg
+        cm.__exit__(None, None, None)
+        time.sleep(0.05)
+    raise AssertionError("舊視窗未在時限內釋放")
+
+
+def assert_second_window_rejected(client: TestClient, code: str, name: str) -> None:
+    """同組已有視窗在線時，第二個視窗必須被拒絕（GROUP_WINDOWS_FULL）。"""
+    cm, _ws, msg = join_student(client, code, name)
+    try:
+        assert msg["type"] == "error" and msg["code"] == "GROUP_WINDOWS_FULL", msg
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @pytest.fixture
 def use_sheet(monkeypatch):
     """讓讀取試算表改為回傳範例檔的格線（不連 Google）。回傳可切換檔案的函式。"""

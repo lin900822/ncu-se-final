@@ -128,12 +128,21 @@ export interface SheetPreview {
   fingerprint: string
 }
 
+const REQUEST_TIMEOUT_MS = 60_000
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS)
   try {
-    res = await fetch(path, init)
-  } catch {
+    res = await fetch(path, { ...init, signal: ctrl.signal })
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw new ApiError('TIMEOUT', '伺服器回應逾時，請稍後再試')
+    }
     throw new ApiError('NETWORK', '無法連線到伺服器，請稍後再試')
+  } finally {
+    clearTimeout(timer)
   }
   const data = await res.json().catch(() => null)
   if (!res.ok) {

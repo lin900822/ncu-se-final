@@ -17,23 +17,22 @@ def dumps(o):
 def test_students_never_receive_rank_or_board(client, use_sheet):
     code, _ = make_started_room(client)
     a1, wa1, ja1 = join_student(client, code, "甲組")
-    a2, wa2, _ = join_student(client, code, "甲組")
     b, wb, jb = join_student(client, code, "乙組")
     c, wc, _ = join_student(client, code, "丙組")
     try:
         wa1.send_json({"type": "submit", "questionId": "1", "answer": "A1"})
         wb.send_json({"type": "submit", "questionId": "1", "answer": "B1"})
         wc.send_json({"type": "submit", "questionId": "2", "answer": "C2"})
-        got = {name: flush(ws) for name, ws in [("a1", wa1), ("a2", wa2), ("b", wb), ("c", wc)]}
+        got = {name: flush(ws) for name, ws in [("a1", wa1), ("b", wb), ("c", wc)]}
         for name, msgs in got.items():
             text = dumps(msgs)
             for word in FORBIDDEN:
                 assert f'"{word}"' not in text, (name, word)
         # 他組看不到組名
         assert "甲組" not in dumps(got["b"]) + dumps(got["c"])
-        assert "乙組" not in dumps(got["a1"]) + dumps(got["a2"]) + dumps(got["c"])
+        assert "乙組" not in dumps(got["a1"]) + dumps(got["c"])
         # 事件格式與 Step 4 相同
-        for m in got["a2"]:
+        for m in got["a1"]:
             if m["type"] == "submitted":
                 assert set(m) == {"type", "questionId", "answer", "round"}
         for m in got["c"]:
@@ -43,7 +42,7 @@ def test_students_never_receive_rank_or_board(client, use_sheet):
             for word in FORBIDDEN:
                 assert f'"{word}"' not in dumps(j)
     finally:
-        for x in (a1, a2, b, c):
+        for x in (a1, b, c):
             x.__exit__(None, None, None)
 
 

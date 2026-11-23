@@ -3,7 +3,7 @@ import json
 import re
 from pathlib import Path
 
-from .conftest import join_student, make_started_room
+from .conftest import assert_second_window_rejected, join_student, join_student_retry, make_started_room
 
 SECRET = "獨特答案ZZ"
 APP = Path(__file__).resolve().parents[1] / "app"
@@ -27,13 +27,12 @@ def dumps(obj) -> str:
 def test_other_group_sees_only_anonymous_hint(client, use_sheet):
     code, _ = make_started_room(client)
     c1, w1, _ = join_student(client, code, "第 1 組")
-    c1b, w1b, _ = join_student(client, code, "第 1 組")
     c2, w2, _ = join_student(client, code, "第 2 組")
     try:
         w1.send_json({"type": "submit", "questionId": "1", "answer": SECRET})
         assert w1.receive_json()["answer"] == SECRET
-        # (e) 對照組：同組其他視窗有收到答案
-        assert w1b.receive_json()["answer"] == SECRET
+        # (e) 同組第二視窗被拒絕，拿不到答案
+        assert_second_window_rejected(client, code, "第 1 組")
         # (a)(b) 他組收到的所有訊息
         received = flush(w2)
         assert len(received) == 1
@@ -41,7 +40,7 @@ def test_other_group_sees_only_anonymous_hint(client, use_sheet):
         assert set(received[0].keys()) == {"type", "questionId", "round"}
         assert received[0]["type"] == "question_submitted" and received[0]["questionId"] == "1"
     finally:
-        for cm in (c1, c1b, c2):
+        for cm in (c1, c2):
             cm.__exit__(None, None, None)
 
 
@@ -69,7 +68,8 @@ def test_rejoin_of_other_group_gets_only_ids(client, use_sheet):
     try:
         w1.send_json({"type": "submit", "questionId": "1", "answer": SECRET})
         w1.receive_json()
-        c3, w3, joined = join_student(client, code, "第 2 組")
+        c2.__exit__(None, None, None)  # 第 2 組唯一視窗關閉後重連
+        c3, w3, joined = join_student_retry(client, code, "第 2 組")
         try:
             assert joined["mySubmissions"] == {}
             assert joined["submittedByOthers"] == ["1"]
@@ -79,7 +79,6 @@ def test_rejoin_of_other_group_gets_only_ids(client, use_sheet):
             c3.__exit__(None, None, None)
     finally:
         c1.__exit__(None, None, None)
-        c2.__exit__(None, None, None)
 
 
 def test_drafts_never_leave_the_browser(client, use_sheet):

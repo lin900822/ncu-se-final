@@ -1,5 +1,5 @@
-"""結果還原：重連、重整、晚加入、同組多視窗、老師 snapshot。"""
-from .conftest import auth, join_student, make_started_room
+"""結果還原：重連、重整、晚加入、同組單一視窗、老師 snapshot。"""
+from .conftest import assert_second_window_rejected, auth, join_student, join_student_retry, make_started_room
 from .test_results import _close, _end, _play, _teacher
 
 
@@ -15,13 +15,20 @@ def test_rejoin_after_end_restores_result(client, use_sheet):
     try:
         _end(client, code, token)
         published = _published(conns)
-        # (a) 同組新視窗  (c) 全新組別
-        for name in ("第 1 組", "第 9 組"):
-            cm, ws, joined = join_student(client, code, name)
-            try:
-                assert joined["phase"] == "Ended" and joined["result"] == published
-            finally:
-                cm.__exit__(None, None, None)
+        # (a) 同組已有視窗在線：新視窗被拒絕  (c) 全新組別：可加入並還原結果
+        assert_second_window_rejected(client, code, "第 1 組")
+        cm, ws, joined = join_student(client, code, "第 9 組")
+        try:
+            assert joined["phase"] == "Ended" and joined["result"] == published
+        finally:
+            cm.__exit__(None, None, None)
+        # (b) 同組原視窗關閉後重連：可加入並還原結果
+        conns[0][0].__exit__(None, None, None)
+        cm, ws, joined = join_student_retry(client, code, "第 1 組")
+        try:
+            assert joined["rejoined"] is True and joined["result"] == published
+        finally:
+            cm.__exit__(None, None, None)
     finally:
         _close(conns)
 
@@ -29,25 +36,25 @@ def test_rejoin_after_end_restores_result(client, use_sheet):
 def test_offline_during_end_then_rejoin(client, use_sheet):
     code, token, conns = _play(client)
     try:
-        conns[3][0].__exit__(None, None, None)  # 第 3 組離線
+        conns[2][0].__exit__(None, None, None)  # 第 3 組離線
         _end(client, code, token)
         published = _published(conns)
-        cm, ws, joined = join_student(client, code, "第 3 組")
+        cm, ws, joined = join_student_retry(client, code, "第 3 組")
         try:
             assert joined["rejoined"] is True and joined["result"] == published
         finally:
             cm.__exit__(None, None, None)
     finally:
-        _close(conns[:3])
+        _close(conns[:2])
 
 
-def test_same_group_windows_both_receive(client, use_sheet):
+def test_same_group_second_window_rejected_original_still_receives(client, use_sheet):
     code, token, conns = _play(client)
     try:
+        assert_second_window_rejected(client, code, "第 1 組")
         _end(client, code, token)
         a = [conns[0][1].receive_json() for _ in range(2)]
-        b = [conns[1][1].receive_json() for _ in range(2)]
-        assert a == b and a[1]["type"] == "round_result"
+        assert a[0]["type"] == "phase_changed" and a[1]["type"] == "round_result"
     finally:
         _close(conns)
 
